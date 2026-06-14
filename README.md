@@ -185,7 +185,7 @@ docker compose -f compose_db.yaml up -d postgres
 4. Khởi tạo lại schema hiện tại từ model:
 
 ```bash
-./.venv/bin/python scripts/reset_database.py
+./.venv/bin/python -m scripts.reset_database
 ```
 
 5. Chạy backend bằng Docker:

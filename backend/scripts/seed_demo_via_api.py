@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import urllib.request
+from pathlib import Path
 
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._path import ensure_backend_root_on_path
 from scripts.seed_demo_data import (
     DEMO_ACCOUNT_EMAIL,
     DEMO_CONTAINER_NOS,
@@ -11,6 +17,7 @@ from scripts.seed_demo_data import (
     build_demo_payloads,
 )
 
+ensure_backend_root_on_path(__file__)
 API_BASE_URL = os.getenv("AGENTIFY_API_BASE_URL", "http://127.0.0.1:8766")
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "agentify-dev-key")
 

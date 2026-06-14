@@ -37,7 +37,7 @@ The backend intentionally follows the same operational style as
 
 ## Reset DB Manually
 
-- Recreate the current schema from `db/models.py` with `./.venv/bin/python scripts/reset_database.py`.
+- Recreate the current schema from `db/models.py` with `./.venv/bin/python -m scripts.reset_database`.
 - The API does not auto-run `init_db()` on startup, so Docker/app boot will not reset schema automatically.
 
 ## Attachment Storage
