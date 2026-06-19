@@ -1,0 +1,49 @@
+const BASE = '';
+
+async function req<T>(path: string, opts?: RequestInit): Promise<T> {
+  const res = await fetch(BASE + path, {
+    headers: { 'Content-Type': 'application/json', ...opts?.headers },
+    ...opts,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+function qs(p: Record<string, unknown>): string {
+  const params = Object.entries(p)
+    .filter(([, v]) => v !== undefined && v !== null && v !== '')
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+  return params.length ? '?' + params.join('&') : '';
+}
+
+import type {
+  AppHomeResponse, ContainerDetailResponse, ContainerFactsResponse,
+  ContainerListResponse, EmailDetail, EmailListResponse,
+  GmailConnection, HealthResponse, SyncJob, SyncJobListResponse,
+} from '../types/api';
+
+export const api = {
+  health: () => req<HealthResponse>('/health'),
+  home: () => req<AppHomeResponse>('/api/v1/app-home'),
+  gmailConnections: () => req<GmailConnection[]>('/api/v1/gmail-connections'),
+  startOAuth: (redirect_to?: string) =>
+    req<{ authorization_url: string }>(`/api/v1/gmail-connections/oauth/start${qs({ redirect_to })}`),
+  createSyncJob: (body: { gmail_connection_id: string; query?: string; max_results?: number }) =>
+    req<SyncJob>('/api/v1/sync-jobs', { method: 'POST', body: JSON.stringify(body) }),
+  runSyncJob: (id: string) =>
+    req<SyncJob>(`/api/v1/sync-jobs/${encodeURIComponent(id)}/run`, { method: 'POST' }),
+  listSyncJobs: (p?: { gmail_connection_id?: string; page?: number; page_size?: number }) =>
+    req<SyncJobListResponse>(`/api/v1/sync-jobs${qs({ ...p, page: p?.page ?? 1, page_size: p?.page_size ?? 10 })}`),
+  listContainers: (p?: { q?: string; page?: number; page_size?: number }) =>
+    req<ContainerListResponse>(`/api/v1/containers${qs({ ...p, page: p?.page ?? 1, page_size: p?.page_size ?? 20 })}`),
+  getContainer: (no: string) =>
+    req<ContainerDetailResponse>(`/api/v1/containers/${encodeURIComponent(no)}`),
+  getContainerFacts: (no: string) =>
+    req<ContainerFactsResponse>(`/api/v1/containers/${encodeURIComponent(no)}/facts`),
+  listEmails: (p?: { gmail_connection_id?: string; page?: number; page_size?: number }) =>
+    req<EmailListResponse>(`/api/v1/emails${qs({ ...p, page: p?.page ?? 1, page_size: p?.page_size ?? 20 })}`),
+  getEmail: (id: string) => req<EmailDetail>(`/api/v1/emails/${encodeURIComponent(id)}`),
+};

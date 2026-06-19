@@ -1,0 +1,1 @@
+{"root":["./src/main.tsx","./src/router.tsx","./src/components/layout/AppShell.tsx","./src/lib/api.ts","./src/lib/format.ts","./src/pages/ContainerDetailPage.tsx","./src/pages/ContainersPage.tsx","./src/pages/EmailDetailPage.tsx","./src/pages/EmailsPage.tsx","./src/pages/OverviewPage.tsx","./src/pages/SetupPage.tsx","./src/types/api.ts"],"version":"5.9.3"}
