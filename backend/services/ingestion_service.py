@@ -20,6 +20,7 @@ async def ingest_processed_email(db: AsyncSession, payload: ProcessedEmailIngest
         email = Email(
             gmail_connection_id=payload.gmail_connection_id,
             sync_job_id=payload.sync_job_id,
+            channel=payload.channel,
             gmail_message_id=payload.gmail_message_id,
             gmail_thread_id=payload.gmail_thread_id,
             subject=payload.subject,
@@ -38,6 +39,7 @@ async def ingest_processed_email(db: AsyncSession, payload: ProcessedEmailIngest
         await db.flush()
     else:
         email.sync_job_id = payload.sync_job_id
+        email.channel = payload.channel
         email.gmail_thread_id = payload.gmail_thread_id
         email.subject = payload.subject
         email.from_email = payload.from_email

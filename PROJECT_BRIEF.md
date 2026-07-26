@@ -55,17 +55,23 @@ Luồng chính của prototype:
 
 ## Scope đang ưu tiên
 
-Những gì nên tập trung build trước:
+Đã build xong:
 
-- `Gmail API` integration
-- email sync có filter/query giới hạn
-- parse email body và attachment
-- OCR/vision cho ảnh và `PDF` scan
-- structured extraction cho mã logistics và status
+- `Gmail API` integration + sync có filter
+- parse email body và attachment, PDF text extraction
+- deterministic extraction + `AI` extraction (Azure `gpt-5-nano`) với `JSON` schema chặt
 - matching theo `container`, `booking`, `B/L`, `PO`
-- `shipment profile`
-- `timeline` có source traceability
+- `shipment profile` có provenance từng field
+- exception engine: sắp hết free time, đã cập bến chưa có `D/O`, `ETA` đổi, thiếu chứng từ, lô im lặng
+- document checklist theo chiều hàng nhập/xuất
+
+Những gì nên tập trung build tiếp, theo thứ tự ưu tiên:
+
+- `timeline` có source traceability cho từng shipment
 - Q&A hoặc search có dẫn nguồn
+- import file `Excel`/`Google Sheet` tracking để seed dữ liệu ngày đầu
+- OCR/vision cho ảnh và `PDF` scan - cần cho `POD`/`EIR`, là mắt xích còn thiếu để đóng vòng free time
+- forward/upload nội dung `Zalo` quan trọng, có consent
 
 Những gì chưa nên làm ở giai đoạn này:
 
@@ -84,27 +90,43 @@ Những gì chưa nên làm ở giai đoạn này:
 - Ưu tiên `human-in-the-loop`
 - Ưu tiên prototype hẹp nhưng chạy được hơn là scope rộng nhưng mơ hồ
 
+## Nhóm khách hàng nhắm tới
+
+Nhóm đầu tiên là `forwarder`/`NVOCC` vừa và nhỏ **thiên hàng nhập đường biển**, 20-100 nhân sự, 100-500 shipment/tháng, tại TP.HCM - Bình Dương - Đồng Nai và Hà Nội - Hải Phòng.
+
+Lý do không nhắm rộng hơn: nhóm này là nhóm duy nhất hội đủ ba điều kiện cùng lúc.
+
+1. Pain xảy ra hằng ngày - `CS` trả lời hàng chục câu hỏi trạng thái mỗi ngày.
+2. Pain có hóa đơn - phí `DEM`/`DET` tính theo ngày, theo container.
+3. Dữ liệu gây pain nằm trong `email` và `PDF` - đúng thứ Agentify đọc được hôm nay.
+
+Nhiều nhóm có pain lớn hơn về quy mô (nhà phân phối `B2B`, bán lẻ đa kênh, trucking) nhưng dữ liệu của họ nằm trong `Zalo`, điện thoại và `OMS`, nên bán cho họ đồng nghĩa với phải xây một sản phẩm khác trước.
+
+Phân tích đầy đủ: `docs/market/agentify_market_research_v3.md`.
+
 ## Nên đọc gì trước khi làm việc?
 
 Thứ tự khuyến nghị:
 
-1. `docs/context-logistics/de_xuat_agentify_v3.md`
-2. `plan/prototype_implementation_plan.md`
-3. `docs/context-logistics/README_CONTEXT.md`
-4. `docs/context-logistics/cum_8_cs_ops_account_tra_loi_khach.md`
-5. `docs/context-logistics/cum_9_excel_email_zalo_file_thu_cong.md`
+1. `docs/market/agentify_market_research_v3.md`
+2. `docs/context-logistics/de_xuat_agentify_v3.md`
+3. `plan/prototype_implementation_plan.md`
+4. `docs/context-logistics/README_CONTEXT.md`
+5. `docs/context-logistics/cum_8_cs_ops_account_tra_loi_khach.md`
+6. `docs/context-logistics/cum_9_excel_email_zalo_file_thu_cong.md`
 
 ## Ưu tiên build ngắn hạn
 
-Thứ tự ưu tiên hiện tại:
+Thứ tự ưu tiên hiện tại (1-5 đã xong):
 
 1. kết nối và sync `Gmail`
 2. ingest email + attachment
 3. extraction + classification
 4. shipment matching
-5. shipment profile + timeline
-6. search/Q&A có source
+5. shipment profile + exception/checklist
+6. timeline có source traceability
+7. search/Q&A có source
 
 ## Một câu mô tả dự án
 
-> Agentify giúp mỗi `shipment/container` có một hồ sơ duy nhất để team logistics tra cứu nhanh trạng thái, chứng từ và bằng chứng vận hành từ dữ liệu đang bị rơi giữa email, file và chat.
+> Agentify giúp mỗi `shipment/container` có một hồ sơ duy nhất để team logistics tra cứu nhanh trạng thái, chứng từ và bằng chứng vận hành từ dữ liệu đang bị rơi giữa email, file và chat - và cảnh báo trước những lô sắp phát sinh chi phí.

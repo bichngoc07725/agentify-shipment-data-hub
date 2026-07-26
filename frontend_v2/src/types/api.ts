@@ -30,8 +30,11 @@ export interface SyncJob {
 }
 export interface SyncJobListResponse { items: SyncJob[]; total: number; page: number; page_size: number; }
 
+export type MessageChannel = 'email' | 'zalo' | 'note' | 'other';
+
 export interface EmailListItem {
-  id: string; gmail_connection_id: string; sync_job_id: string | null;
+  id: string; gmail_connection_id: string | null; sync_job_id: string | null;
+  channel: MessageChannel;
   gmail_message_id: string; subject: string; from_email: string;
   sent_at: string; snippet: string | null; has_pdf_attachments: boolean;
   processing_status: string; linked_containers: string[];
@@ -41,14 +44,52 @@ export interface EmailListResponse { items: EmailListItem[]; total: number; page
 
 export interface ContainerListItem {
   id: string; container_no: string; booking_no: string | null;
-  bl_no: string | null; po_no: string | null; vessel: string | null;
+  bl_no: string | null; po_no: string | null; do_no: string | null;
+  vessel: string | null;
   voyage: string | null; pol: string | null; pod: string | null;
-  etd: string | null; eta: string | null; status_text: string | null;
+  etd: string | null; eta: string | null; ata: string | null;
+  free_time_days: number | null; status_text: string | null;
   source_count: number; attachment_count: number; updated_at: string | null;
+}
+
+export type ExceptionSeverity = 'critical' | 'warning' | 'info';
+
+export interface ShipmentException {
+  container_no: string;
+  code: string;
+  severity: ExceptionSeverity;
+  title: string;
+  detail: string;
+  evidence: string[];
+  due_date: string | null;
+  days_remaining: number | null;
+}
+
+export interface ShipmentExceptionListResponse {
+  items: ShipmentException[];
+  total: number;
+  counts_by_severity: Partial<Record<ExceptionSeverity, number>>;
+}
+
+export interface ContainerRiskProfile {
+  container_no: string;
+  direction: string;
+  exceptions: ShipmentException[];
+  /** Files actually in Agentify. */
+  documents_present: string[];
+  /** Referred to by a message, file not received yet — still counts as missing. */
+  documents_mentioned: string[];
+  documents_missing: string[];
+  completeness: number;
+  free_time_expires_on: string | null;
+  free_time_is_assumed: boolean;
 }
 export interface ContainerListResponse { items: ContainerListItem[]; total: number; page: number; page_size: number; }
 
-export interface RelatedEmailSummary { id: string; subject: string; from_email: string; sent_at: string; }
+export interface RelatedEmailSummary {
+  id: string; subject: string; from_email: string; sent_at: string;
+  channel: MessageChannel;
+}
 export interface RelatedAttachmentSummary { id: string; filename: string; email_id: string; document_type: string | null; file_url: string | null; }
 export interface ContainerDetailResponse {
   container: ContainerListItem;
@@ -75,9 +116,43 @@ export interface EmailExtractedFact {
   source_type: string; source_label: string | null; document_type: string | null;
   confidence: number | null; source_sent_at: string | null;
 }
+export interface ManualIngestRequest {
+  channel: 'zalo' | 'note' | 'other';
+  content: string;
+  source_label?: string;
+  sender?: string;
+  occurred_at?: string;
+}
+
+export interface ManualIngestPreview {
+  channel: string;
+  container_nos: string[];
+  document_type: string | null;
+  extraction_method: string;
+  extraction_status: string;
+  extraction_error: string | null;
+  fields: {
+    identifiers?: Record<string, unknown>;
+    route?: Record<string, unknown>;
+    free_time_days?: number | null;
+  };
+  matched_containers: string[];
+  new_containers: string[];
+}
+
+export interface ManualIngestResult {
+  message_id: string;
+  channel: string;
+  linked_containers: string[];
+  fact_count: number;
+  extraction_method: string;
+  extraction_status: string;
+}
+
 export interface EmailDetail {
   email: {
-    id: string; gmail_message_id: string; gmail_thread_id: string | null;
+    id: string; channel: MessageChannel;
+    gmail_message_id: string; gmail_thread_id: string | null;
     subject: string; from_email: string; to_emails: string[]; cc_emails: string[];
     sent_at: string; snippet: string | null; body_text: string | null;
     body_html: string | null; has_pdf_attachments: boolean; processing_status: string;

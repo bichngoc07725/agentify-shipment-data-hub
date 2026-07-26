@@ -7,6 +7,8 @@
 - Core idea: build a data layer above fragmented logistics communication channels so each shipment/container has one searchable profile.
 - Target users: `CS`, `Ops`, `Docs`, `Account` teams in forwarder/`3PL` SMEs in Vietnam.
 - Primary user value: search a `container`, `booking`, `B/L`, or `PO` and immediately see status, related emails/documents, timeline, missing items, and source references.
+- Beachhead segment: **import-heavy sea freight forwarders/NVOCC, 20-100 staff, 100-500 shipments/month**. See `docs/market/agentify_market_research_v3.md` for why this segment and not a broader one.
+- Commercial wedge: free time / `DEM`-`DET` exposure. It is the one pain in this segment that has an invoice attached, and the data behind it (arrival notice, `D/O`) is already in email and PDF.
 
 ## Product Positioning
 
@@ -49,6 +51,27 @@ Core prototype flow:
 - Shipment profile page
 - Timeline event creation with source traceability
 - Natural-language search and Q&A over stored data
+- Exception detection: free time expiring, arrived without `D/O`, `ETA` changed, missing documents, stale shipments
+- Document checklist per shipment direction (import/export)
+- Manual/`Zalo` ingest: the user pastes a message, reviews what extraction read, then commits it
+
+## Channels
+
+`emails` is channel-aware: the `channel` column distinguishes `email` from `zalo` and `note`, and
+`gmail_connection_id` is nullable for messages that did not come from a mailbox. Pasted messages
+are stored in the same table on purpose, so container profiles, provenance and the exception
+engine treat every channel identically.
+
+Referring to a document is not the same as having it. `load_container_context` returns two sets:
+`document_types` (attachments on file) and `documents_mentioned` (a message body classified as
+that document type, with no file behind it). Only files satisfy the document checklist and count
+towards completeness. A mention still suppresses the free-time exception when it yields a `do_no`,
+because Ops needs to know the `D/O` exists — but Docs still has to collect the file, so the
+checklist shows it as `Có thông tin, chưa có file` rather than present. Do not merge these two sets.
+
+`Zalo` is deliberately manual. Reading it automatically would need access to entire personal
+conversations, which this product should not ask for. Do not add an automatic Zalo reader; the
+supported paths are paste/forward with review, and `Zalo OA` when a business has an official channel.
 
 ## Out of Scope Right Now
 
@@ -74,16 +97,34 @@ Core prototype flow:
 - `CS/Ops/Docs/Account` users are the first audience because they repeatedly answer shipment-status questions from fragmented sources.
 - The most important early value is faster, more reliable retrieval, not end-to-end workflow automation.
 
+## Extraction Pipeline
+
+Extraction is rules-first, LLM-second, and never fails ingestion:
+
+1. `gmail_service/deterministic_extract.py` runs on every document. Exact-format
+   identifiers come from here, and container numbers carry an ISO 6346 check-digit
+   confidence (invalid ones are kept but ranked lower, because real documents
+   contain typos).
+2. `gmail_service/llm_client.py` calls Azure AI Foundry with a strict JSON schema,
+   or Gemini as a fallback. `EXTRACTION_PROVIDER=none` disables it entirely.
+3. `gmail_service/field_extract.py` merges the two. Rules win for identifiers and
+   route dates (`DD/MM/YYYY` is read as day-first); the model wins for parties,
+   ports, cargo and charges.
+
+If the LLM provider is down, extraction degrades to rule-only output with
+`extraction_status=partial`, rather than dropping the email.
+
 ## Recommended Reading Order
 
 Read these before major product or architecture changes:
 
-1. `docs/context-logistics/de_xuat_agentify_v3.md`
-2. `plan/prototype_implementation_plan.md`
-3. `docs/context-logistics/README_CONTEXT.md`
-4. `docs/context-logistics/cum_8_cs_ops_account_tra_loi_khach.md`
-5. `docs/context-logistics/cum_9_excel_email_zalo_file_thu_cong.md`
-6. `docs/context-logistics/cum_4_chung_tu_xuat_nhap_khau.md`
+1. `docs/market/agentify_market_research_v3.md`
+2. `docs/context-logistics/de_xuat_agentify_v3.md`
+3. `plan/prototype_implementation_plan.md`
+4. `docs/context-logistics/README_CONTEXT.md`
+5. `docs/context-logistics/cum_8_cs_ops_account_tra_loi_khach.md`
+6. `docs/context-logistics/cum_9_excel_email_zalo_file_thu_cong.md`
+7. `docs/context-logistics/cum_4_chung_tu_xuat_nhap_khau.md`
 
 ## Current Build Priorities
 

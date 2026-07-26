@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -140,8 +140,9 @@ class IngestFactRequest(BaseModel):
 
 
 class ProcessedEmailIngestRequest(BaseModel):
-    gmail_connection_id: UUID
+    gmail_connection_id: UUID | None = None
     sync_job_id: UUID | None = None
+    channel: str = "email"
     gmail_message_id: str
     gmail_thread_id: str | None = None
     subject: str
@@ -166,18 +167,59 @@ class ProcessedEmailIngestResponse(BaseModel):
     linked_containers: list[str]
 
 
+class ManualIngestRequest(BaseModel):
+    """Content a user pastes or forwards in by hand, typically from Zalo.
+
+    Agentify deliberately does not read Zalo automatically: that would need
+    consent and access it should not ask for. The user stays the gatekeeper and
+    decides what enters the shipment record.
+    """
+
+    channel: Literal["zalo", "note", "other"] = "zalo"
+    content: str = Field(min_length=1, max_length=20000)
+    source_label: str | None = Field(default=None, max_length=255)
+    sender: str | None = Field(default=None, max_length=255)
+    occurred_at: datetime | None = None
+
+
+class ManualIngestPreviewResponse(BaseModel):
+    """What extraction read, shown for review before anything is written."""
+
+    channel: str
+    container_nos: list[str] = Field(default_factory=list)
+    document_type: str | None = None
+    extraction_method: str
+    extraction_status: str
+    extraction_error: str | None = None
+    fields: dict[str, Any] = Field(default_factory=dict)
+    matched_containers: list[str] = Field(default_factory=list)
+    new_containers: list[str] = Field(default_factory=list)
+
+
+class ManualIngestResponse(BaseModel):
+    message_id: UUID
+    channel: str
+    linked_containers: list[str]
+    fact_count: int
+    extraction_method: str
+    extraction_status: str
+
+
 class ContainerListItem(BaseModel):
     id: UUID
     container_no: str
     booking_no: str | None
     bl_no: str | None
     po_no: str | None
+    do_no: str | None = None
     vessel: str | None
     voyage: str | None
     pol: str | None
     pod: str | None
     etd: date | None
     eta: date | None
+    ata: date | None = None
+    free_time_days: int | None = None
     status_text: str | None
     source_count: int
     attachment_count: int
@@ -196,6 +238,7 @@ class RelatedEmailSummary(BaseModel):
     subject: str
     from_email: str
     sent_at: datetime
+    channel: str = "email"
 
 
 class RelatedAttachmentSummary(BaseModel):
@@ -204,6 +247,35 @@ class RelatedAttachmentSummary(BaseModel):
     email_id: UUID
     document_type: str | None
     file_url: str | None = None
+
+
+class ShipmentExceptionResponse(BaseModel):
+    container_no: str
+    code: str
+    severity: str
+    title: str
+    detail: str
+    evidence: list[str] = Field(default_factory=list)
+    due_date: date | None = None
+    days_remaining: int | None = None
+
+
+class ShipmentExceptionListResponse(BaseModel):
+    items: list[ShipmentExceptionResponse]
+    total: int
+    counts_by_severity: dict[str, int] = Field(default_factory=dict)
+
+
+class ContainerRiskProfileResponse(BaseModel):
+    container_no: str
+    direction: str
+    exceptions: list[ShipmentExceptionResponse]
+    documents_present: list[str]
+    documents_mentioned: list[str] = Field(default_factory=list)
+    documents_missing: list[str]
+    completeness: float
+    free_time_expires_on: date | None = None
+    free_time_is_assumed: bool = False
 
 
 class ContainerDetailResponse(BaseModel):
@@ -239,8 +311,9 @@ class EmailDetailResponse(BaseModel):
 
 class EmailListItem(BaseModel):
     id: UUID
-    gmail_connection_id: UUID
+    gmail_connection_id: UUID | None
     sync_job_id: UUID | None
+    channel: str = "email"
     gmail_message_id: str
     subject: str
     from_email: str

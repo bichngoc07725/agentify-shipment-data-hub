@@ -2,16 +2,17 @@ import { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Package, Mail, Settings, Menu, X, Search,
-  RefreshCw, ChevronRight
+  RefreshCw, TriangleAlert
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { AppHomeResponse } from '../../types/api';
 
 const NAV = [
   { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
+  { to: '/exceptions', label: 'Ngoại lệ', icon: TriangleAlert },
   { to: '/containers', label: 'Containers', icon: Package },
   { to: '/emails', label: 'Emails', icon: Mail },
-  { to: '/setup', label: 'Data source', icon: Settings },
+  { to: '/setup', label: 'Nguồn dữ liệu', icon: Settings },
 ];
 
 export function AppShell() {

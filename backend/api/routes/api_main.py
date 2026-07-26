@@ -10,9 +10,11 @@ from api.routes.attachments import router as attachments_router
 from api.routes.app_home import router as app_home_router
 from api.routes.containers import router as containers_router
 from api.routes.emails import router as emails_router
+from api.routes.exceptions import router as exceptions_router
 from api.routes.gmail_connections import router as gmail_connections_router
 from api.routes.health import router as health_router
 from api.routes.ingest import router as ingest_router
+from api.routes.manual_ingest import router as manual_ingest_router
 from api.routes.sync_jobs import router as sync_jobs_router
 
 app.include_router(health_router)
@@ -21,8 +23,10 @@ app.include_router(attachments_router)
 app.include_router(gmail_connections_router)
 app.include_router(sync_jobs_router)
 app.include_router(ingest_router)
+app.include_router(manual_ingest_router)
 app.include_router(containers_router)
 app.include_router(emails_router)
+app.include_router(exceptions_router)
 
 
 @app.exception_handler(RequestValidationError)

@@ -331,11 +331,14 @@ h3 { font-size: 15px; font-weight: 600; }
   padding: 20px 24px;
 }
 
+/* Separators come from each cell's own outline rather than from the grid
+   background showing through the gaps. With the old approach a last row that
+   was not full rendered the leftover slots as stray grey blocks. */
 .fact-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 1px;
-  background: var(--border-subtle);
+  background: var(--bg-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-panel);
   overflow: hidden;
@@ -345,6 +348,7 @@ h3 { font-size: 15px; font-weight: 600; }
   background: var(--bg-panel);
   padding: 14px 16px;
   display: flex; flex-direction: column; gap: 4px;
+  outline: 1px solid var(--border-subtle);
 }
 
 .fact-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }

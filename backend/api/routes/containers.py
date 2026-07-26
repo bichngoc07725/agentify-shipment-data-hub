@@ -30,12 +30,15 @@ def _to_container_item(container) -> ContainerListItem:
         booking_no=container.booking_no,
         bl_no=container.bl_no,
         po_no=container.po_no,
+        do_no=container.do_no,
         vessel=container.vessel,
         voyage=container.voyage,
         pol=container.pol,
         pod=container.pod,
         etd=container.etd,
         eta=container.eta,
+        ata=container.ata,
+        free_time_days=container.free_time_days,
         status_text=container.status_text,
         source_count=container.source_count,
         attachment_count=container.attachment_count,
@@ -78,6 +81,7 @@ async def get_container_detail_endpoint(
                 subject=email.subject,
                 from_email=email.from_email,
                 sent_at=email.sent_at,
+                channel=email.channel,
             )
             for email in emails
         ],

@@ -19,19 +19,22 @@ def process_pdf_text(
 def process_text_content(
     email: dict[str, str], source_name: str, extracted_text: str
 ) -> ExtractedRecord:
-    extraction_error = None
+    # `extract_fields` degrades to rule-only output instead of raising when the
+    # LLM provider fails, so this except path only covers unexpected errors.
     try:
         fields = extract_fields(email["subject"], email["sender"], extracted_text)
-        status = "ok"
     except Exception as exc:
         fields = {
             "doc_type": "other",
             "doc_type_confidence": 0.0,
             "identifiers": {},
             "route": {},
+            "extraction_status": "failed",
+            "extraction_error": str(exc),
+            "extraction_method": "deterministic",
         }
-        status = "failed"
-        extraction_error = str(exc)
+
+    fields.setdefault("extraction_status", "ok")
 
     return ExtractedRecord(
         source=Source(
@@ -41,8 +44,6 @@ def process_text_content(
             received_at=_normalize_received_at(email["received_at"]),
             attachment_name=source_name,
         ),
-        extraction_status=status,
-        extraction_error=extraction_error,
         **fields,
     )
 

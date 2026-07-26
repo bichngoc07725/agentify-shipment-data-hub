@@ -6,7 +6,9 @@ authentication:
     allow_ips:
       - "*"
     allow_origins: []
-    allow_origins_regex: "${ALLOW_ORIGINS_REGEX}"
+    # Single-quoted: the value is a regex, and YAML would treat `\.` inside
+    # double quotes as an unknown escape sequence and fail to parse.
+    allow_origins_regex: '${ALLOW_ORIGINS_REGEX}'
 
 databases:
   postgres:
@@ -32,5 +34,15 @@ gmail_service:
     redirect_uri: "${GMAIL_REDIRECT_URI}"
     frontend_return_url: "${GMAIL_FRONTEND_RETURN_URL}"
   extraction:
+    # auto | azure_openai | gemini | none
+    # auto prefers Azure when it is fully configured, then Gemini, then rules only.
+    provider: "${EXTRACTION_PROVIDER}"
     api_key: "${GEMINI_API_KEY}"
     model: "${GEMINI_MODEL}"
+    azure:
+      # Full Responses API URL, not just the resource host.
+      endpoint: "${AZURE_OPENAI_ENDPOINT}"
+      api_key: "${AZURE_OPENAI_API_KEY}"
+      # Deployment name, not the base model name.
+      deployment: "${AZURE_OPENAI_DEPLOYMENT}"
+      reasoning_effort: "low"

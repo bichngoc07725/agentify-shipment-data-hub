@@ -8,6 +8,7 @@ from api.models import (
     IngestFactRequest,
     ProcessedEmailIngestRequest,
 )
+from gmail_service.deterministic_extract import extract_deterministic
 from gmail_service.models import (
     ExtractedRecord,
     GmailAttachmentPayload,
@@ -21,12 +22,14 @@ SUMMARY_FIELDS = (
     "booking_no",
     "bl_no",
     "po_no",
+    "do_no",
     "vessel",
     "voyage",
     "pol",
     "pod",
     "etd",
     "eta",
+    "ata",
 )
 
 CONTAINER_PATTERN = re.compile(r"\b([A-Z]{4}\s?-?\d{7})\b", re.IGNORECASE)
@@ -253,6 +256,21 @@ def _build_record_facts(
                 )
             )
 
+    if record.free_time_days is not None:
+        for container_no in container_nos or [None]:
+            facts.append(
+                _build_simple_fact(
+                    field_name="free_time_days",
+                    normalized_value=str(record.free_time_days),
+                    container_no=container_no,
+                    source_type=source_type,
+                    source_label=source_label,
+                    document_type=record.doc_type,
+                    confidence=confidence,
+                    attachment_filename=attachment_filename,
+                )
+            )
+
     if record.identifiers.seal_no:
         for seal_no in record.identifiers.seal_no:
             for container_no in container_nos or [None]:
@@ -360,6 +378,19 @@ def _build_email_body_facts(email: GmailEmailPayload) -> list[IngestFactRequest]
             )
         )
 
+    # Fields the exception engine depends on, which the patterns above predate.
+    for field_name, value in _extract_risk_fields(content).items():
+        facts.append(
+            IngestFactRequest(
+                field_name=field_name,
+                field_value=value,
+                normalized_value=value,
+                container_no=default_container_no,
+                source_type="email_body",
+                source_label="Email body",
+            )
+        )
+
     status_text = _derive_status_text(email.subject)
     if status_text:
         facts.append(
@@ -374,6 +405,30 @@ def _build_email_body_facts(email: GmailEmailPayload) -> list[IngestFactRequest]
         )
 
     return facts
+
+
+def _extract_risk_fields(content: str) -> dict[str, str]:
+    """Pull ATA, D/O number and free time out of an email body.
+
+    These drive the free-time and missing-D/O exceptions, so they are read from
+    the body as well as from attachments.
+    """
+    deterministic = extract_deterministic("", "", content)
+    values: dict[str, str] = {}
+
+    ata = (deterministic.get("route") or {}).get("ata")
+    if ata:
+        values["ata"] = str(ata)
+
+    do_no = (deterministic.get("identifiers") or {}).get("do_no")
+    if do_no:
+        values["do_no"] = str(do_no)
+
+    free_time_days = deterministic.get("free_time_days")
+    if free_time_days is not None:
+        values["free_time_days"] = str(free_time_days)
+
+    return values
 
 
 def _collect_email_text_content(email: GmailEmailPayload) -> str:

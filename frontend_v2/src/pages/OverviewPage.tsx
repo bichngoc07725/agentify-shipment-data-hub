@@ -2,22 +2,14 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, Database, Mail, AlertTriangle, ChevronRight, RefreshCw } from 'lucide-react';
 import { api } from '../lib/api';
-import type { AppHomeResponse, ContainerListItem } from '../types/api';
+import type { AppHomeResponse, ShipmentExceptionListResponse } from '../types/api';
 import { fmtDateTime, fmtRelative, fmtDate } from '../lib/format';
-
-function toListItem(c: AppHomeResponse['recent_containers'][number]): ContainerListItem {
-  return {
-    id: c.container_no, container_no: c.container_no, booking_no: c.booking_no,
-    bl_no: c.bl_no, po_no: null, vessel: null, voyage: null, pol: null,
-    pod: c.pod, etd: c.etd, eta: c.eta, status_text: c.status_text,
-    source_count: c.source_count, attachment_count: c.attachment_count, updated_at: c.updated_at,
-  };
-}
 
 export function OverviewPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [home, setHome] = useState<AppHomeResponse | null>(null);
+  const [exceptions, setExceptions] = useState<ShipmentExceptionListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState(searchParams.get('q') ?? '');
@@ -28,7 +20,11 @@ export function OverviewPage() {
       .then(setHome)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
+
+    api.listExceptions({ limit: 200 }).then(setExceptions).catch(() => setExceptions(null));
   }, []);
+
+  const criticalCount = exceptions?.counts_by_severity.critical ?? 0;
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -78,9 +74,32 @@ export function OverviewPage() {
         </div>
       )}
 
+      {/* Exceptions needing action today */}
+      {!loading && exceptions && exceptions.total > 0 && (
+        <div className={`banner ${criticalCount > 0 ? 'banner-danger' : 'banner-warning'}`}>
+          <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <strong>{exceptions.total} lô cần xử lý.</strong>{' '}
+            {criticalCount > 0
+              ? `${criticalCount} lô ở mức nguy cấp — sắp hết free time hoặc đã cập bến nhưng chưa có D/O.`
+              : 'Thiếu chứng từ, ETA thay đổi hoặc quá lâu chưa có cập nhật.'}
+          </div>
+          <Link to="/exceptions" className="btn btn-primary btn-sm">Xem ngoại lệ</Link>
+        </div>
+      )}
+
       {/* Status strip */}
       {!loading && (
         <div className="status-strip">
+          <div className="status-strip-item">
+            <span className="status-strip-label">Cần xử lý</span>
+            <span
+              className="status-strip-value"
+              style={{ color: criticalCount > 0 ? 'var(--danger)' : undefined }}
+            >
+              {exceptions?.total ?? '—'}
+            </span>
+          </div>
           <div className="status-strip-item">
             <span className="status-strip-label">Gmail</span>
             <span className="status-strip-value" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

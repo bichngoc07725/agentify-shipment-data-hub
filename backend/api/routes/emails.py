@@ -30,6 +30,7 @@ async def list_emails_endpoint(
                 id=item["email"].id,
                 gmail_connection_id=item["email"].gmail_connection_id,
                 sync_job_id=item["email"].sync_job_id,
+                channel=item["email"].channel,
                 gmail_message_id=item["email"].gmail_message_id,
                 subject=item["email"].subject,
                 from_email=item["email"].from_email,
@@ -61,6 +62,7 @@ async def get_email_detail_endpoint(
     return EmailDetailResponse(
         email={
             "id": detail["email"].id,
+            "channel": detail["email"].channel,
             "gmail_message_id": detail["email"].gmail_message_id,
             "gmail_thread_id": detail["email"].gmail_thread_id,
             "subject": detail["email"].subject,

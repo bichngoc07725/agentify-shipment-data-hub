@@ -21,8 +21,10 @@ function qs(p: Record<string, unknown>): string {
 
 import type {
   AppHomeResponse, ContainerDetailResponse, ContainerFactsResponse,
-  ContainerListResponse, EmailDetail, EmailListResponse,
-  GmailConnection, HealthResponse, SyncJob, SyncJobListResponse,
+  ContainerListResponse, ContainerRiskProfile, EmailDetail, EmailListResponse,
+  GmailConnection, HealthResponse, ManualIngestPreview, ManualIngestRequest,
+  ManualIngestResult, ShipmentExceptionListResponse,
+  SyncJob, SyncJobListResponse,
 } from '../types/api';
 
 export const api = {
@@ -43,6 +45,14 @@ export const api = {
     req<ContainerDetailResponse>(`/api/v1/containers/${encodeURIComponent(no)}`),
   getContainerFacts: (no: string) =>
     req<ContainerFactsResponse>(`/api/v1/containers/${encodeURIComponent(no)}/facts`),
+  listExceptions: (p?: { severity?: string; code?: string; limit?: number }) =>
+    req<ShipmentExceptionListResponse>(`/api/v1/exceptions${qs({ ...p })}`),
+  getContainerExceptions: (no: string) =>
+    req<ContainerRiskProfile>(`/api/v1/containers/${encodeURIComponent(no)}/exceptions`),
+  previewManualIngest: (body: ManualIngestRequest) =>
+    req<ManualIngestPreview>('/api/v1/manual-ingest/preview', { method: 'POST', body: JSON.stringify(body) }),
+  createManualIngest: (body: ManualIngestRequest) =>
+    req<ManualIngestResult>('/api/v1/manual-ingest', { method: 'POST', body: JSON.stringify(body) }),
   listEmails: (p?: { gmail_connection_id?: string; page?: number; page_size?: number }) =>
     req<EmailListResponse>(`/api/v1/emails${qs({ ...p, page: p?.page ?? 1, page_size: p?.page_size ?? 20 })}`),
   getEmail: (id: string) => req<EmailDetail>(`/api/v1/emails/${encodeURIComponent(id)}`),

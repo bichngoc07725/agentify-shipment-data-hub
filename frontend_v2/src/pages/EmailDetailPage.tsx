@@ -4,6 +4,7 @@ import { ChevronLeft, Paperclip, AlertTriangle, FileText } from 'lucide-react';
 import { api } from '../lib/api';
 import type { EmailDetail, EmailAttachment } from '../types/api';
 import { fmtDateTime, fmtBytes, emailStatusLabel } from '../lib/format';
+import { CHANNEL_BADGE, CHANNEL_LABELS, factSourceLabel } from '../lib/channels';
 
 export function EmailDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -54,6 +55,11 @@ export function EmailDetailPage() {
 
         {/* Email header */}
         <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span className={`badge ${CHANNEL_BADGE[detail.email.channel] ?? 'badge-neutral'}`}>
+              {CHANNEL_LABELS[detail.email.channel] ?? detail.email.channel}
+            </span>
+          </div>
           <h1 style={{ fontSize: 20, fontWeight: 600, lineHeight: 1.3 }}>{detail.email.subject}</h1>
           <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: 'var(--text-secondary)' }}>
             <div><span style={{ color: 'var(--text-muted)', minWidth: 40, display: 'inline-block' }}>From</span> {detail.email.from_email}</div>
@@ -163,7 +169,7 @@ export function EmailDetailPage() {
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{f.field_name}</div>
                   <div style={{ fontSize: 13, fontWeight: 500, fontFamily: 'var(--font-mono)', marginTop: 2 }}>{f.field_value}</div>
                   <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 2 }}>
-                    {f.source_type === 'attachment' ? `PDF · ${f.source_label ?? 'file'}` : 'Email body'}
+                    {factSourceLabel(f)}
                   </div>
                 </div>
               ))}

@@ -3,6 +3,8 @@ import { AlertTriangle, CheckCircle, RefreshCw, Mail } from 'lucide-react';
 import { api } from '../lib/api';
 import type { GmailConnection, SyncJob } from '../types/api';
 import { fmtDateTime, fmtRelative, syncStatusLabel } from '../lib/format';
+import { SOURCES, SOURCE_STATE_BADGE, SOURCE_STATE_LABELS } from '../lib/channels';
+import { ZaloIngestCard } from '../components/sources/ZaloIngestCard';
 import { Link } from 'react-router-dom';
 
 export function SetupPage() {
@@ -95,10 +97,20 @@ export function SetupPage() {
   return (
     <div style={{ maxWidth: 780, margin: '0 auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 28 }}>
       <div>
-        <h1 style={{ fontSize: 20, fontWeight: 600 }}>Data source</h1>
-        <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 4 }}>
-          Kết nối Gmail, cấu hình sync và kiểm tra lịch sử đồng bộ.
+        <h1 style={{ fontSize: 20, fontWeight: 600 }}>Nguồn dữ liệu</h1>
+        <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.6 }}>
+          Agentify gom dữ liệu lô hàng từ các kênh vận hành đang dùng hằng ngày.
+          Mỗi kênh ghi rõ trạng thái thật, không hứa cái chưa làm được.
         </p>
+      </div>
+
+      <SourceOverview />
+
+      <div id="gmail">
+        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          📧 Gmail
+          <span className="badge badge-success">Đang chạy</span>
+        </h2>
       </div>
 
       {loading && (
@@ -263,6 +275,64 @@ export function SetupPage() {
           </div>
         </>
       )}
+
+      {/* Zalo — manual, reviewed ingest */}
+      <div id="zalo" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 24 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+          💬 Zalo
+          <span className="badge badge-info">Thủ công, có kiểm duyệt</span>
+        </h2>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14, lineHeight: 1.6 }}>
+          Zalo là kênh điều phối số 1 trong logistics Việt Nam, nhưng Agentify không đọc
+          tự động — việc đó cần quyền truy cập toàn bộ hội thoại cá nhân mà sản phẩm không
+          nên xin. Bạn quyết định tin nào vào hồ sơ.
+        </p>
+        <ZaloIngestCard onIngested={load} />
+      </div>
+
+      {/* Sources still ahead */}
+      <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 24 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Nguồn chưa mở</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {SOURCES.filter(s => s.state === 'roadmap' || s.state === 'out_of_scope').map(source => (
+            <div key={source.id} className="card">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <span style={{ fontSize: 18 }}>{source.icon}</span>
+                <strong style={{ fontSize: 14 }}>{source.name}</strong>
+                <span className={`badge ${SOURCE_STATE_BADGE[source.state]}`} style={{ marginLeft: 'auto' }}>
+                  {SOURCE_STATE_LABELS[source.state]}
+                </span>
+              </div>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{source.detail}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SourceOverview() {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+      {SOURCES.map(source => (
+        <div
+          key={source.id}
+          className="card"
+          style={{ padding: 14, opacity: source.state === 'out_of_scope' ? 0.7 : 1 }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 16 }}>{source.icon}</span>
+            <strong style={{ fontSize: 13 }}>{source.name}</strong>
+          </div>
+          <span className={`badge ${SOURCE_STATE_BADGE[source.state]}`}>
+            {SOURCE_STATE_LABELS[source.state]}
+          </span>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8, lineHeight: 1.5 }}>
+            {source.summary}
+          </p>
+        </div>
+      ))}
     </div>
   );
 }

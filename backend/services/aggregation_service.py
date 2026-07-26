@@ -9,6 +9,7 @@ AGGREGATE_FIELDS = {
     "booking_no": "booking_no",
     "bl_no": "bl_no",
     "po_no": "po_no",
+    "do_no": "do_no",
     "seal_no": "seal_no",
     "vessel": "vessel",
     "voyage": "voyage",
@@ -16,10 +17,13 @@ AGGREGATE_FIELDS = {
     "pod": "pod",
     "etd": "etd",
     "eta": "eta",
+    "ata": "ata",
+    "free_time_days": "free_time_days",
     "status_text": "status_text",
 }
 
-DATE_FIELDS = {"etd", "eta"}
+DATE_FIELDS = {"etd", "eta", "ata"}
+INTEGER_FIELDS = {"free_time_days"}
 
 
 def normalize_container_no(value: str) -> str:
@@ -30,6 +34,13 @@ def normalize_date_value(value: str) -> date | None:
     try:
         return date.fromisoformat(value)
     except ValueError:
+        return None
+
+
+def normalize_integer_value(value: str) -> int | None:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
         return None
 
 
@@ -89,6 +100,8 @@ async def refresh_container_summary(db: AsyncSession, container_id) -> Container
         value = fact.normalized_value or fact.field_value
         if field_name in DATE_FIELDS:
             setattr(container, column_name, normalize_date_value(value))
+        elif field_name in INTEGER_FIELDS:
+            setattr(container, column_name, normalize_integer_value(value))
         else:
             setattr(container, column_name, value)
 

@@ -34,6 +34,7 @@ class Identifiers(BaseModel):
     sb_no: str | None = None
     awb_no: str | None = None
     po_no: str | None = None
+    do_no: str | None = None
     job_no: str | None = None
     invoice_no: str | None = None
     hs_code: str | None = None
@@ -95,7 +96,9 @@ class ExtractedRecord(BaseModel):
     route: Route
     cargo: Cargo | None = None
     charges: list[Charge] = Field(default_factory=list)
+    free_time_days: int | None = None
     extraction_status: Literal["ok", "partial", "failed"] = "ok"
+    extraction_method: Literal["deterministic", "llm", "hybrid"] = "deterministic"
     extraction_error: str | None = None
 
 

@@ -81,12 +81,16 @@ class Email(Base):
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Null for messages that did not come from a mailbox, e.g. a Zalo message
+    # pasted in by hand.
     gmail_connection_id = Column(
-        UUID(as_uuid=True), ForeignKey("gmail_connections.id"), nullable=False, index=True
+        UUID(as_uuid=True), ForeignKey("gmail_connections.id"), nullable=True, index=True
     )
     sync_job_id = Column(
         UUID(as_uuid=True), ForeignKey("sync_jobs.id"), nullable=True
     )
+    # Which channel this message arrived on: email, zalo, note.
+    channel = Column(String(32), nullable=False, default="email", index=True)
     gmail_message_id = Column(String(255), nullable=False, index=True)
     gmail_thread_id = Column(String(255), nullable=True)
     subject = Column(Text, nullable=False)
@@ -145,6 +149,7 @@ class Container(Base):
     booking_no = Column(String(255), nullable=True, index=True)
     bl_no = Column(String(255), nullable=True, index=True)
     po_no = Column(String(255), nullable=True, index=True)
+    do_no = Column(String(255), nullable=True, index=True)
     seal_no = Column(String(255), nullable=True)
     vessel = Column(String(255), nullable=True)
     voyage = Column(String(255), nullable=True)
@@ -152,6 +157,9 @@ class Container(Base):
     pod = Column(String(255), nullable=True)
     etd = Column(Date, nullable=True)
     eta = Column(Date, nullable=True)
+    ata = Column(Date, nullable=True)
+    # Free days before demurrage/detention starts, as stated on the arrival notice.
+    free_time_days = Column(Integer, nullable=True)
     status_text = Column(Text, nullable=True)
     source_count = Column(Integer, nullable=False, default=0)
     attachment_count = Column(Integer, nullable=False, default=0)
