@@ -200,32 +200,6 @@ Sáu loại ngoại lệ, tất cả tính từ dữ liệu email/PDF đã có:
 
 Mỗi cảnh báo đều kèm **căn cứ** (`ATA`, số ngày free time, tên file nguồn). Khi số ngày free time chưa có trong chứng từ, hệ thống tạm tính và **nói rõ là đang tạm tính** thay vì im lặng đoán.
 
-## Luồng Demo 
-
-Luồng demo nên đi theo thứ tự sau:
-
-1. Mở `/setup` và kết nối Gmail.
-![alt text](images/1.png)
-2. Tạo sync job với query giới hạn, ví dụ `newer_than:30d`.
-![alt text](images/2.png)
-3. Chạy job để ingest email và PDF.
-4. Quay lại `/` để xem số container và mailbox đã có dữ liệu.
-![alt text](images/4.png)
-5. Tra cứu một mã container hoặc booking ở ô search chính.
-6. Mở `Chi tiết container` để show shipment profile, facts, email liên quan và attachment liên quan.
-![alt text](images/6.png)
-7. Mở một `Email nguồn` để chứng minh provenance và PDF preview.
-![alt text](images/7.png)
-8. Nếu cần quét nhiều shipment, chuyển sang `/containers` và dùng bộ lọc trạng thái.
-![alt text](images/8.png)
-
-Luồng này thể hiện rõ thông điệp của prototype:
-
-- dữ liệu đi vào từ Gmail
-- dữ liệu được trích xuất và nối lại theo shipment
-- người dùng tra cứu bằng mã nghiệp vụ quen thuộc
-- mọi kết luận đều có nguồn để kiểm tra
-
 ## Kiến Trúc & Luồng Hoạt Động
 
 ```
