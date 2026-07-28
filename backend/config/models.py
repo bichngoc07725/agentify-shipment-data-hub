@@ -54,7 +54,7 @@ class AppConfig(BaseModel):
 class GmailOAuthConfig(BaseModel):
     credentials_file: str = "credentials.json"
     redirect_uri: str = "http://localhost:8766/api/v1/gmail-connections/oauth/callback"
-    frontend_return_url: str = "http://localhost:5173/setup"
+    frontend_return_url: str = "http://localhost:5174/setup"
 
 
 class AzureOpenAIConfig(BaseModel):

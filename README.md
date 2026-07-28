@@ -226,6 +226,28 @@ Luồng này thể hiện rõ thông điệp của prototype:
 - người dùng tra cứu bằng mã nghiệp vụ quen thuộc
 - mọi kết luận đều có nguồn để kiểm tra
 
+## Kiến Trúc & Luồng Hoạt Động
+
+```
+Gmail (OAuth readonly)  ─┐
+Zalo (dán tin nhắn)     ─┼─► backend (FastAPI) ─► Postgres
+Upload thủ công         ─┘        │
+                                   ├─ regex trích xuất field logistics (luôn chạy trước)
+                                   └─ LLM (Azure OpenAI / Gemini, tuỳ config) bổ sung/chính xác hoá
+                                          nếu LLM lỗi hoặc không cấu hình → giữ nguyên kết quả regex
+                                          (extraction_status=partial, không mất dữ liệu)
+                                   │
+                                   ▼
+                        container/shipment profile (có provenance)
+                                   │
+                                   ▼
+                    frontend (React + Vite) ──proxy /api,/health──► backend
+```
+
+- Backend và frontend là 2 tiến trình độc lập, không phụ thuộc runtime lẫn nhau ngoài HTTP. Khi chạy `npm run dev`, Vite tự proxy `/api` và `/health` sang backend (xem `frontend_v2/vite.config.ts`, biến `VITE_PROXY_TARGET`, mặc định `http://127.0.0.1:8766`).
+- Khi deploy bằng Docker (cả hai đều có Dockerfile riêng), frontend và backend nên join chung một Docker network để container frontend gọi được backend qua tên service thay vì `127.0.0.1` — xem phần Frontend bên dưới.
+- Đồng bộ Gmail chạy theo 2 chế độ: lần đầu dùng `query` người dùng nhập (vd. `newer_than:30d`); các lần sau dùng Gmail History API (bỏ qua `query`) để chỉ lấy email mới kể từ lần sync trước. Một email không đọc được (đã bị xoá, quyền truy cập lỗi...) sẽ bị bỏ qua và ghi nhận trong `error_message` của sync job, không làm hỏng cả job.
+
 ## Cách Chạy
 
 ### Backend
@@ -243,6 +265,8 @@ uv sync
 - `backend/app-config.yaml` là file cấu hình mà backend đọc trực tiếp lúc khởi động. Bạn có thể dùng `backend/app-config-template.yaml` làm mẫu.
 
 Cả hai file đều nằm trong `.gitignore` nên API key không bị commit.
+
+> **Lưu ý khi deploy trên VPS chỉ có IP (không có domain):** Google chặn OAuth 2.0 redirect URI là địa chỉ IP trần và bắt buộc HTTPS (trừ `localhost`). Nếu server chỉ có IP, `GMAIL_REDIRECT_URI` trỏ thẳng vào IP sẽ báo lỗi `Access blocked: ... doesn't comply with Google's OAuth 2.0 policy`. Cách khắc phục nhanh không cần domain riêng: dùng [ngrok](https://ngrok.com) tạo một static domain HTTPS miễn phí trỏ vào backend (`ngrok http --url=<your-domain>.ngrok-free.app 8766`), rồi dùng domain đó cho `GMAIL_REDIRECT_URI` và trong Google Cloud Console (APIs & Services → Credentials → OAuth client → Authorized redirect URIs). Frontend vẫn truy cập bình thường qua IP:port, chỉ riêng bước callback OAuth cần domain HTTPS này.
 
 #### Cấu hình trích xuất
 
@@ -276,11 +300,19 @@ Extraction luôn chạy regex trước rồi mới gọi LLM. Nếu LLM lỗi ho
 docker compose -f compose_db.yaml up -d postgres
 ```
 
-4. Khởi tạo lại schema hiện tại từ model:
+4. Khởi tạo schema:
 
-```bash
-./.venv/bin/python -m scripts.reset_database
-```
+- **Lần đầu / môi trường dev, chưa có dữ liệu cần giữ:** tạo lại toàn bộ schema từ model (drop + create, **xoá sạch dữ liệu hiện có**):
+
+  ```bash
+  ./.venv/bin/python -m scripts.reset_database
+  ```
+
+- **Đã có dữ liệu thật cần giữ (vd. email/container đã sync trên server đang chạy):** dùng Alembic để chỉ áp dụng phần schema còn thiếu, không đụng vào dữ liệu cũ:
+
+  ```bash
+  ./.venv/bin/python -m alembic upgrade head
+  ```
 
 5. Chạy backend bằng Docker:
 
@@ -290,19 +322,30 @@ docker compose up -d --build
 
 ### Frontend
 
-1. Vào thư mục frontend và cài dependency:
+Có 2 cách chạy, tuỳ mục đích.
+
+#### Cách 1: Chạy dev cục bộ (`npm run dev`)
 
 ```bash
-cd ../frontend_v2 && npm install
-```
-
-2. Chạy frontend:
-
-```bash
+cd frontend_v2
+npm install
 npm run dev
 ```
 
-Frontend và backend đều đã có sẵn trong repo. Điểm quan trọng là DB không tự reset khi app khởi động; nếu cần recreate schema hiện tại, chạy script riêng ở backend.
+Vite chạy ở `http://localhost:5174`, tự proxy `/api` và `/health` sang backend ở `http://127.0.0.1:8766` (đổi bằng biến môi trường `VITE_PROXY_TARGET` nếu backend chạy ở host/port khác — xem `frontend_v2/vite.config.ts`).
+
+#### Cách 2: Chạy bằng Docker (dùng khi deploy lên server)
+
+Repo có sẵn `frontend_v2/Dockerfile` và `frontend_v2/docker-compose.yml`. Cách này hữu ích khi deploy lên VPS: container tự bind ra ngoài qua Docker, không bị chặn bởi firewall cấp OS như khi chạy `npm run dev` trần (`ufw`/iptables thường không lọc port mà Docker publish ra).
+
+```bash
+cd frontend_v2
+docker compose up -d --build
+```
+
+Mặc định, compose file join vào network `agentify-logistics-app-net` (được tạo khi chạy `docker compose up` ở `backend/`) và trỏ `VITE_PROXY_TARGET` vào tên service backend (`http://agentify-logistics-api:8766`) thay vì `127.0.0.1` — bắt buộc phải chạy backend bằng Docker trước để network này tồn tại. Đổi `VITE_PROXY_TARGET` trong `frontend_v2/docker-compose.yml` nếu cấu trúc network khác.
+
+Dù chạy theo cách nào, frontend và backend đều đã có sẵn code trong repo, không cần build gì thêm ngoài các bước trên. Điểm quan trọng: DB không tự reset khi app khởi động; muốn tạo lại schema thì chạy script/migration riêng ở backend (xem mục Backend ở trên).
 
 ### Chạy test
 
