@@ -9,10 +9,10 @@ import type { AppHomeResponse } from '../../types/api';
 
 const NAV = [
   { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
-  { to: '/exceptions', label: 'Ngoại lệ', icon: TriangleAlert },
+  { to: '/exceptions', label: 'Exceptions', icon: TriangleAlert },
   { to: '/containers', label: 'Containers', icon: Package },
   { to: '/emails', label: 'Emails', icon: Mail },
-  { to: '/setup', label: 'Nguồn dữ liệu', icon: Settings },
+  { to: '/setup', label: 'Data Sources', icon: Settings },
 ];
 
 export function AppShell() {

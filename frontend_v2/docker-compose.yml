@@ -1,0 +1,19 @@
+name: agentify-logistics-frontend
+
+services:
+  agentify-logistics-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      VITE_PROXY_TARGET: ${VITE_PROXY_TARGET:-http://agentify-logistics-api:8766}
+    ports:
+      - "5174:5174"
+    networks:
+      - agentify-logistics-app
+
+networks:
+  agentify-logistics-app:
+    name: agentify-logistics-app-net
+    external: true

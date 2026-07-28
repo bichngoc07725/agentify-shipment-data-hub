@@ -27,3 +27,7 @@ coverage/
 
 # Runtime attachment storage
 backend/storage/gmail_attachments/
+
+# Gmail OAuth client secret downloaded from Google Cloud Console
+backend/client_secret_*.json
+credentials.json

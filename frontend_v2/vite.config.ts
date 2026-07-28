@@ -2,6 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
+const proxyTarget = process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:8766'
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -10,15 +12,16 @@ export default defineConfig({
     },
   },
   server: {
+    host: true,
     port: 5174,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8766',
+        target: proxyTarget,
         changeOrigin: true,
         secure: false,
       },
       '/health': {
-        target: 'http://127.0.0.1:8766',
+        target: proxyTarget,
         changeOrigin: true,
         secure: false,
       },

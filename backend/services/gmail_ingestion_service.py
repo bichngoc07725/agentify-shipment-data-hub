@@ -142,9 +142,15 @@ async def execute_sync_job(
         linked_containers: set[str] = set()
         attachments_found = 0
         pdf_text_extracted = 0
+        skipped_message_ids: list[str] = []
 
         for message_id in message_ids:
-            email = fetch_email(gmail_api, message_id)
+            try:
+                email = fetch_email(gmail_api, message_id)
+            except Exception as exc:
+                skipped_message_ids.append(message_id)
+                print(f"gmail sync: skipping unreachable message {message_id}: {exc}")
+                continue
             processed_email = process_email(connection.id, job.id, email)
             ingest_result = await ingest_email(db, processed_email)
             attachments_found += ingest_result["attachment_count"]
@@ -160,11 +166,15 @@ async def execute_sync_job(
 
         completed_at = datetime.now(UTC)
         job.status = "completed"
-        job.emails_fetched = len(message_ids)
+        job.emails_fetched = len(message_ids) - len(skipped_message_ids)
         job.attachments_found = attachments_found
         job.pdf_text_extracted = pdf_text_extracted
         job.containers_upserted = len(linked_containers)
-        job.error_message = None
+        job.error_message = (
+            f"Skipped {len(skipped_message_ids)} unreachable message(s)"
+            if skipped_message_ids
+            else None
+        )
         job.started_at = job.started_at or started_at
         job.completed_at = completed_at
         connection.sync_cursor = next_sync_cursor or connection.sync_cursor
