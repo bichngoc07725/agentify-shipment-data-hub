@@ -1,9 +1,12 @@
+import base64
 import unittest
 from datetime import UTC, datetime
 from unittest.mock import patch
 
 from api.models import ManualIngestRequest
 from gmail_service import field_extract
+from gmail_service.models import ExtractedRecord, Identifiers, Route, Source
+from services import manual_ingest_service
 from services.manual_ingest_service import (
     _subject_from,
     build_facts,
@@ -126,6 +129,13 @@ class BuildFactsTest(unittest.TestCase):
 
         self.assertTrue(all(fact.source_type == "note_message" for fact in facts))
 
+    def test_pasted_image_produces_image_vision_provenance(self) -> None:
+        request = make_request(content="", image_base64="ZmFrZQ==")
+
+        facts = build_facts(request, self.fields)
+
+        self.assertTrue(all(fact.source_type == "image_vision" for fact in facts))
+
 
 class RequestValidationTest(unittest.TestCase):
     def test_empty_content_is_rejected(self) -> None:
@@ -135,6 +145,51 @@ class RequestValidationTest(unittest.TestCase):
     def test_unknown_channel_is_rejected(self) -> None:
         with self.assertRaises(Exception):
             ManualIngestRequest(channel="whatsapp", content="hello")
+
+    def test_image_alone_with_no_text_is_accepted(self) -> None:
+        request = ManualIngestRequest(
+            channel="zalo", content="", image_base64="ZmFrZQ==", image_mime_type="image/jpeg"
+        )
+
+        self.assertEqual(request.content, "")
+        self.assertEqual(request.image_base64, "ZmFrZQ==")
+
+
+class ImageExtractionTest(unittest.TestCase):
+    def test_extract_from_content_uses_vision_when_an_image_is_pasted(self) -> None:
+        fake_record = ExtractedRecord(
+            source=Source(
+                message_id="zalo-preview",
+                sender="Ops - Nguyen Van A",
+                subject="Group Dieu xe Cat Lai: ",
+                received_at="2026-07-25T07:30:00+00:00",
+                attachment_name="pod.jpg",
+            ),
+            doc_type="other",
+            doc_type_confidence=0.5,
+            identifiers=Identifiers(container_no=["CSQU3054383"]),
+            route=Route(),
+            extraction_method="llm",
+            extraction_status="ok",
+        )
+        request = make_request(
+            content="",
+            image_base64=base64.b64encode(b"fake-image-bytes").decode(),
+            image_mime_type="image/jpeg",
+            image_filename="pod.jpg",
+        )
+
+        with patch.object(
+            manual_ingest_service, "process_image_attachment", return_value=fake_record
+        ) as mock_process:
+            fields = extract_from_content(request)
+
+        mock_process.assert_called_once()
+        args, _ = mock_process.call_args
+        self.assertEqual(args[1], "pod.jpg")
+        self.assertEqual(args[2], b"fake-image-bytes")
+        self.assertEqual(args[3], "image/jpeg")
+        self.assertEqual(fields["identifiers"]["container_no"], ["CSQU3054383"])
 
 
 if __name__ == "__main__":

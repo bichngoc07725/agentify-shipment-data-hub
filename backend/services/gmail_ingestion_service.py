@@ -14,7 +14,12 @@ from gmail_service.auth import get_gmail_profile, get_gmail_service
 from gmail_service.fetcher import get_email, resolve_sync_message_ids
 from gmail_service.models import ExtractedRecord, GmailEmailPayload
 from gmail_service.pdf_reader import read_pdf_text
-from gmail_service.pipeline import process_pdf_attachment, process_pdf_text, process_text_content
+from gmail_service.pipeline import (
+    process_image_attachment,
+    process_pdf_attachment,
+    process_pdf_text,
+    process_text_content,
+)
 from services.ingestion_service import ingest_processed_email
 from services.sync_job_service import update_sync_job
 
@@ -45,18 +50,27 @@ def build_processed_email_from_gmail_payload(
 ) -> ProcessedEmailIngestRequest:
     results: list[AttachmentExtractionResult] = []
     for attachment in email.attachments:
-        extracted_text = read_pdf_text(attachment.attachment_bytes)
-        text_extract_status = "extracted" if extracted_text.strip() else "empty"
-        record = process_pdf_text(
-            {
-                "message_id": email.gmail_message_id,
-                "sender": email.from_email,
-                "subject": email.subject,
-                "received_at": email.sent_at,
-            },
-            attachment.filename,
-            extracted_text,
-        )
+        source_email = {
+            "message_id": email.gmail_message_id,
+            "sender": email.from_email,
+            "subject": email.subject,
+            "received_at": email.sent_at,
+        }
+        if attachment.mime_type.startswith("image/"):
+            extracted_text = None
+            record = process_image_attachment(
+                source_email,
+                attachment.filename,
+                attachment.attachment_bytes,
+                attachment.mime_type,
+            )
+            text_extract_status = (
+                "extracted" if record.extraction_status == "ok" else "failed"
+            )
+        else:
+            extracted_text = read_pdf_text(attachment.attachment_bytes)
+            text_extract_status = "extracted" if extracted_text.strip() else "empty"
+            record = process_pdf_text(source_email, attachment.filename, extracted_text)
         results.append(
             AttachmentExtractionResult(
                 attachment=attachment,

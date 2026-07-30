@@ -1,4 +1,7 @@
 import json
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Any
 
 from gmail_service.config import (
@@ -7,6 +10,7 @@ from gmail_service.config import (
 )
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 
 
 def build_authorization_url(state: str) -> str:
@@ -21,7 +25,11 @@ def build_authorization_url(state: str) -> str:
     authorization_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
-        prompt="consent",
+        # `select_account` shows Google's account chooser even if the browser
+        # already has a session for a different Google account, so "log back
+        # in" and "connect a different mailbox" both go through a deliberate
+        # choice instead of silently reusing whatever account is active.
+        prompt="select_account consent",
     )
     return authorization_url
 
@@ -57,6 +65,22 @@ def get_gmail_service(refresh_token: str):
 def get_gmail_profile(refresh_token: str) -> dict[str, Any]:
     service = get_gmail_service(refresh_token)
     return service.users().getProfile(userId="me").execute()
+
+
+def revoke_token(token: str) -> None:
+    """Tell Google to invalidate this refresh token — a real "log out", not
+    just forgetting our local copy of it. Best-effort: a token that is
+    already expired or revoked makes Google return an error here too, which
+    is not a reason to block disconnecting the connection locally.
+    """
+    data = urllib.parse.urlencode({"token": token}).encode("utf-8")
+    request = urllib.request.Request(
+        REVOKE_URL, data=data, headers={"Content-Type": "application/x-www-form-urlencoded"}
+    )
+    try:
+        urllib.request.urlopen(request, timeout=10)
+    except urllib.error.URLError:
+        pass
 
 
 def _build_credentials(refresh_token: str):

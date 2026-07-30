@@ -1,7 +1,9 @@
+import base64
 import unittest
 from unittest.mock import Mock
 
-from gmail_service.fetcher import resolve_sync_message_ids
+from gmail_service.fetcher import _collect_document_attachments, resolve_sync_message_ids
+from gmail_service.models import GmailAttachmentPayload
 
 
 class _InvalidHistoryError(Exception):
@@ -73,6 +75,72 @@ class GmailFetcherTest(unittest.TestCase):
 
         self.assertEqual(message_ids, ["msg-005"])
         self.assertEqual(next_cursor, "history-005")
+
+
+class CollectDocumentAttachmentsTest(unittest.TestCase):
+    def test_collects_pdf_and_image_but_skips_other_types(self) -> None:
+        service = Mock()
+        image_bytes = b"fake-jpeg-bytes"
+        pdf_bytes = b"fake-pdf-bytes"
+        docx_bytes = b"fake-docx-bytes"
+        part = {
+            "parts": [
+                {
+                    "filename": "customs_photo.jpg",
+                    "mimeType": "image/jpeg",
+                    "body": {
+                        "data": base64.urlsafe_b64encode(image_bytes).decode(),
+                        "size": len(image_bytes),
+                    },
+                },
+                {
+                    "filename": "invoice.pdf",
+                    "mimeType": "application/pdf",
+                    "body": {
+                        "data": base64.urlsafe_b64encode(pdf_bytes).decode(),
+                        "size": len(pdf_bytes),
+                    },
+                },
+                {
+                    "filename": "notes.docx",
+                    "mimeType": (
+                        "application/vnd.openxmlformats-officedocument"
+                        ".wordprocessingml.document"
+                    ),
+                    "body": {
+                        "data": base64.urlsafe_b64encode(docx_bytes).decode(),
+                        "size": len(docx_bytes),
+                    },
+                },
+            ]
+        }
+
+        out: list[GmailAttachmentPayload] = []
+        _collect_document_attachments(service, "msg-001", part, out)
+
+        filenames = [attachment.filename for attachment in out]
+        self.assertEqual(filenames, ["customs_photo.jpg", "invoice.pdf"])
+        self.assertEqual(out[0].mime_type, "image/jpeg")
+        self.assertEqual(out[0].attachment_bytes, image_bytes)
+        self.assertEqual(out[1].mime_type, "application/pdf")
+
+    def test_image_reported_as_octet_stream_is_still_collected_by_extension(self) -> None:
+        service = Mock()
+        image_bytes = b"fake-png-bytes"
+        part = {
+            "filename": "scan.png",
+            "mimeType": "application/octet-stream",
+            "body": {
+                "data": base64.urlsafe_b64encode(image_bytes).decode(),
+                "size": len(image_bytes),
+            },
+        }
+
+        out: list[GmailAttachmentPayload] = []
+        _collect_document_attachments(service, "msg-001", part, out)
+
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0].mime_type, "image/png")
 
 
 if __name__ == "__main__":

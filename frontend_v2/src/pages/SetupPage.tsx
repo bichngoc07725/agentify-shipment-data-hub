@@ -13,6 +13,7 @@ export function SetupPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [oauthLoading, setOauthLoading] = useState(false);
+  const [disconnecting, setDisconnecting] = useState<'logout' | 'switch' | null>(null);
 
   // Sync form state
   const [syncQuery, setSyncQuery] = useState('newer_than:30d');
@@ -74,6 +75,30 @@ export function SetupPage() {
     }
   }
 
+  // "Thoát tài khoản": revoke + forget the current mailbox, stay on this page.
+  async function handleLogout(connectionId: string) {
+    setDisconnecting('logout'); setError(null);
+    try {
+      await api.disconnectGmailConnection(connectionId);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Không thoát được tài khoản');
+    } finally { setDisconnecting(null); }
+  }
+
+  // "Dùng email khác": revoke the current mailbox, then immediately restart
+  // OAuth so Google's account chooser shows up (see prompt=select_account).
+  async function handleSwitchAccount(connectionId: string) {
+    setDisconnecting('switch'); setError(null);
+    try {
+      await api.disconnectGmailConnection(connectionId);
+      await handleConnectGmail();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Không đổi được tài khoản');
+      setDisconnecting(null);
+    }
+  }
+
   async function handleStartSync() {
     const conn = connections[0];
     if (!conn) return;
@@ -103,8 +128,6 @@ export function SetupPage() {
           Mỗi kênh ghi rõ trạng thái thật, không hứa cái chưa làm được.
         </p>
       </div>
-
-      <SourceOverview />
 
       <div id="gmail">
         <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -147,7 +170,7 @@ export function SetupPage() {
         <>
           {/* Connection row */}
           <div className="card">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <div style={{
                 width: 40, height: 40, borderRadius: '50%',
                 background: 'var(--accent-soft)', color: 'var(--accent)',
@@ -156,13 +179,31 @@ export function SetupPage() {
               }}>
                 {mainConn.account_email[0].toUpperCase()}
               </div>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minWidth: 160 }}>
                 <div style={{ fontWeight: 500 }}>{mainConn.account_email}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                   Read-only · Last sync: {fmtRelative(mainConn.last_synced_at)}
                 </div>
               </div>
               <span className="badge badge-success"><CheckCircle size={11} style={{ marginRight: 4 }} /> Connected</span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => handleSwitchAccount(mainConn.id)}
+                  disabled={disconnecting !== null}
+                >
+                  {disconnecting === 'switch' ? 'Đang chuyển…' : 'Dùng email khác'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => handleLogout(mainConn.id)}
+                  disabled={disconnecting !== null}
+                >
+                  {disconnecting === 'logout' ? 'Đang thoát…' : 'Thoát tài khoản'}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -308,31 +349,6 @@ export function SetupPage() {
           ))}
         </div>
       </div>
-    </div>
-  );
-}
-
-function SourceOverview() {
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-      {SOURCES.map(source => (
-        <div
-          key={source.id}
-          className="card"
-          style={{ padding: 14, opacity: source.state === 'out_of_scope' ? 0.7 : 1 }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span style={{ fontSize: 16 }}>{source.icon}</span>
-            <strong style={{ fontSize: 13 }}>{source.name}</strong>
-          </div>
-          <span className={`badge ${SOURCE_STATE_BADGE[source.state]}`}>
-            {SOURCE_STATE_LABELS[source.state]}
-          </span>
-          <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8, lineHeight: 1.5 }}>
-            {source.summary}
-          </p>
-        </div>
-      ))}
     </div>
   );
 }

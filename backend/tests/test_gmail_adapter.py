@@ -235,6 +235,123 @@ class GmailAdapterTest(unittest.TestCase):
             facts,
         )
 
+    def test_image_attachment_gets_image_vision_source_and_is_not_text_pdf(
+        self,
+    ) -> None:
+        gmail_connection_id = uuid4()
+        sync_job_id = uuid4()
+        sent_at = datetime(2026, 7, 10, 9, 15, tzinfo=UTC)
+        email = GmailEmailPayload(
+            gmail_message_id="msg-004",
+            gmail_thread_id="thread-004",
+            subject="To khai Hai quan - MSCU1234567",
+            from_email="docs@forwarder-demo.com",
+            to_emails=["cs@agentify.vn"],
+            sent_at=sent_at,
+            snippet="",
+            body_text="",
+            raw_labels=["INBOX"],
+            attachments=[
+                GmailAttachmentPayload(
+                    gmail_attachment_id="att-pdf-001",
+                    filename="invoice.pdf",
+                    mime_type="application/pdf",
+                    size_bytes=2048,
+                    attachment_bytes=b"%PDF",
+                ),
+                GmailAttachmentPayload(
+                    gmail_attachment_id="att-img-001",
+                    filename="customs_declaration_photo.jpg",
+                    mime_type="image/jpeg",
+                    size_bytes=4096,
+                    attachment_bytes=b"fake-jpeg-bytes",
+                ),
+            ],
+        )
+        pdf_record = ExtractedRecord(
+            source=Source(
+                message_id="msg-004",
+                sender="docs@forwarder-demo.com",
+                subject="To khai Hai quan - MSCU1234567",
+                received_at=sent_at.isoformat(),
+                attachment_name="invoice.pdf",
+            ),
+            doc_type="invoice",
+            doc_type_confidence=0.9,
+            identifiers=Identifiers(container_no=["MSCU1234567"]),
+            route=Route(),
+            extraction_status="ok",
+        )
+        image_record = ExtractedRecord(
+            source=Source(
+                message_id="msg-004",
+                sender="docs@forwarder-demo.com",
+                subject="To khai Hai quan - MSCU1234567",
+                received_at=sent_at.isoformat(),
+                attachment_name="customs_declaration_photo.jpg",
+            ),
+            doc_type="customs_declaration",
+            doc_type_confidence=0.9,
+            identifiers=Identifiers(
+                container_no=["MSCU1234567"], declaration_no="108234567890"
+            ),
+            route=Route(),
+            extraction_status="ok",
+            extraction_method="llm",
+        )
+
+        backend_root = Path("backend").resolve()
+        storage_root = backend_root / "storage"
+        storage_root.mkdir(parents=True, exist_ok=True)
+        with TemporaryDirectory(dir=storage_root) as temp_dir:
+            with patch("gmail_service.adapter.ATTACHMENT_STORAGE_DIR", Path(temp_dir)):
+                payload = build_processed_email_request(
+                    gmail_connection_id=gmail_connection_id,
+                    sync_job_id=sync_job_id,
+                    email=email,
+                    attachment_results=[
+                        AttachmentExtractionResult(
+                            attachment=email.attachments[0],
+                            extracted_text="Invoice No: INV-001",
+                            text_extract_status="extracted",
+                            record=pdf_record,
+                        ),
+                        AttachmentExtractionResult(
+                            attachment=email.attachments[1],
+                            extracted_text=None,
+                            text_extract_status="extracted",
+                            record=image_record,
+                        ),
+                    ],
+                )
+
+        pdf_attachment = next(
+            a for a in payload.attachments if a.filename == "invoice.pdf"
+        )
+        image_attachment = next(
+            a
+            for a in payload.attachments
+            if a.filename == "customs_declaration_photo.jpg"
+        )
+        self.assertTrue(pdf_attachment.is_text_pdf)
+        self.assertFalse(image_attachment.is_text_pdf)
+
+        declaration_fact = next(
+            fact
+            for fact in payload.extracted_facts
+            if fact.field_name == "declaration_no"
+        )
+        self.assertEqual(declaration_fact.source_type, "image_vision")
+        self.assertEqual(declaration_fact.container_no, "MSCU1234567")
+
+        status_facts_by_source = {
+            fact.source_type
+            for fact in payload.extracted_facts
+            if fact.field_name == "status_text" and fact.container_no == "MSCU1234567"
+        }
+        self.assertIn("pdf_text", status_facts_by_source)
+        self.assertIn("image_vision", status_facts_by_source)
+
 
 if __name__ == "__main__":
     unittest.main()

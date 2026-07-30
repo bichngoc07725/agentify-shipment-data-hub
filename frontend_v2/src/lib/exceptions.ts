@@ -27,6 +27,7 @@ export const DOCUMENT_LABELS: Record<string, string> = {
   packing_list: 'Packing List',
   debit_note: 'Debit Note',
   certificate_of_origin: 'Certificate of Origin',
+  customs_declaration: 'Tờ khai Hải quan',
 };
 
 export function documentLabel(code: string): string {

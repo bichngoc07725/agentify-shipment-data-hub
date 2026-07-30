@@ -141,6 +141,14 @@ class ClassificationTest(unittest.TestCase):
     def test_unknown_document_is_other(self) -> None:
         self.assertEqual(classify_document("Hello", "nothing relevant"), ("other", 0.0))
 
+    def test_customs_declaration_subject_match(self) -> None:
+        doc_type, confidence = classify_document(
+            "To khai Hai quan (thong quan) - MSCU1234567", "so to khai 108234567890"
+        )
+
+        self.assertEqual(doc_type, "customs_declaration")
+        self.assertEqual(confidence, 0.85)
+
 
 class ExtractDeterministicTest(unittest.TestCase):
     def test_extracts_a_full_arrival_notice(self) -> None:
@@ -210,6 +218,28 @@ class ExtractDeterministicTest(unittest.TestCase):
                 if value and key not in {"container_no", "seal_no"}
             }
             self.assertEqual(scalars, {}, f"false identifier from {text!r}")
+
+    def test_extracts_declaration_no(self) -> None:
+        result = extract_deterministic(
+            "To khai Hai quan (thong quan) - MSCU1234567",
+            "docs@forwarder-demo.com",
+            "So to khai: 108234567890\nSo hieu container: MSCU1234567",
+        )
+
+        self.assertEqual(result["doc_type"], "customs_declaration")
+        self.assertEqual(result["identifiers"]["declaration_no"], "108234567890")
+
+    def test_bare_to_khai_in_title_does_not_yield_a_declaration_no(self) -> None:
+        # The document's own title ("TO KHAI HANG HOA NHAP KHAU") contains
+        # "to khai" constantly; only the full "so to khai" label should count.
+        result = extract_deterministic(
+            "",
+            "",
+            "HAI QUAN VIET NAM\nTO KHAI HANG HOA NHAP KHAU (THONG QUAN)\n"
+            "Ngay dang ky: 10/07/2026",
+        )
+
+        self.assertIsNone(result["identifiers"].get("declaration_no"))
 
     def test_empty_input_yields_empty_result_not_an_error(self) -> None:
         result = extract_deterministic("", "", "")

@@ -42,6 +42,9 @@ _LABEL_SEP = r"(?:\s*(?:no|number|ref|s[oố])\.?)?\s*[:.#]*\s*"
 # from swallowing the following prose ("Booking confirmation attached").
 _ID_VALUE = r"((?=[A-Z0-9][A-Z0-9/-]*\d)[A-Z0-9][A-Z0-9/-]{3,})"
 _SEAL_VALUE = r"((?=[A-Z0-9][A-Z0-9-]*\d)[A-Z0-9][A-Z0-9-]{3,})"
+# Customs declaration numbers are pure digits (e.g. 105476302040), unlike other
+# identifiers which mix letters and digits.
+_DECLARATION_VALUE = r"(\d{6,14})"
 
 
 def _labelled(label: str, value: str = _ID_VALUE) -> re.Pattern[str]:
@@ -65,6 +68,12 @@ _IDENTIFIER_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     ],
     "seal_no": [_labelled(r"seal|ni[eê]m\s*phong", _SEAL_VALUE)],
     "invoice_no": [_labelled(r"invoice|inv")],
+    # Anchored on the full label, not bare "tờ khai" — that phrase appears
+    # constantly in the document's own title/prose ("TỜ KHAI HÀNG HÓA...").
+    "declaration_no": [
+        _labelled(r"s[oố]\s*t[oờ]\s*khai", _DECLARATION_VALUE),
+        _labelled(r"declaration\s*(?:no|number)?", _DECLARATION_VALUE),
+    ],
 }
 
 _DATE_LABELS: dict[str, str] = {
@@ -132,6 +141,17 @@ _PORT_PATTERNS = {
 
 # Ordered: the first keyword that matches wins, so put the specific ones first.
 _DOC_TYPE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
+    (
+        "customs_declaration",
+        (
+            "customs declaration",
+            "tờ khai hải quan",
+            "tờ khai hàng hóa",
+            # ASCII fallback: some systems/scans strip Vietnamese diacritics.
+            "to khai hai quan",
+            "to khai hang hoa",
+        ),
+    ),
     ("arrival_notice", ("arrival notice", "notice of arrival", "thông báo hàng đến")),
     (
         "booking_confirmation",

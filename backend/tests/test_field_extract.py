@@ -1,9 +1,13 @@
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from gmail_service import field_extract, llm_client
-from gmail_service.field_extract import extract_fields, merge_records
+from gmail_service.field_extract import (
+    extract_fields,
+    extract_fields_from_image,
+    merge_records,
+)
 from gmail_service.llm_client import ExtractionUnavailable, _azure_output_text
 
 ARRIVAL_NOTICE = (
@@ -45,6 +49,124 @@ class AzureConfigurationTest(unittest.TestCase):
         with patch.object(llm_client, "AZURE_OPENAI_ENDPOINT", ""):
             with self.assertRaises(ExtractionUnavailable):
                 llm_client.call_azure_openai("prompt", {"type": "object"})
+
+
+class VisionRequestShapeTest(unittest.TestCase):
+    """`call_azure_openai`/`call_gemini` build a different request shape when
+    an image is attached — these tests pin that shape down."""
+
+    def test_azure_image_becomes_an_input_image_content_part(self) -> None:
+        captured: dict = {}
+
+        class _FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps(
+                    {
+                        "status": "completed",
+                        "output": [
+                            {
+                                "type": "message",
+                                "content": [{"type": "output_text", "text": "{}"}],
+                            }
+                        ],
+                    }
+                ).encode("utf-8")
+
+        def fake_urlopen(request, timeout=None):
+            captured["payload"] = json.loads(request.data.decode("utf-8"))
+            return _FakeResponse()
+
+        with patch.object(
+            llm_client, "AZURE_OPENAI_ENDPOINT", "https://example.test/openai/v1/responses"
+        ), patch.object(llm_client, "AZURE_OPENAI_API_KEY", "key"), patch.object(
+            llm_client, "AZURE_OPENAI_DEPLOYMENT", "gpt-5-nano-file"
+        ), patch(
+            "gmail_service.llm_client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            llm_client.call_azure_openai(
+                "read this document",
+                {"type": "object"},
+                image_bytes=b"\x89PNG-fake-bytes",
+                image_mime_type="image/png",
+            )
+
+        content = captured["payload"]["input"][0]["content"]
+        self.assertEqual(content[0], {"type": "input_text", "text": "read this document"})
+        self.assertEqual(content[1]["type"], "input_image")
+        self.assertTrue(content[1]["image_url"].startswith("data:image/png;base64,"))
+
+    def test_azure_without_image_keeps_the_bare_string_content(self) -> None:
+        captured: dict = {}
+
+        class _FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps(
+                    {
+                        "status": "completed",
+                        "output": [
+                            {
+                                "type": "message",
+                                "content": [{"type": "output_text", "text": "{}"}],
+                            }
+                        ],
+                    }
+                ).encode("utf-8")
+
+        def fake_urlopen(request, timeout=None):
+            captured["payload"] = json.loads(request.data.decode("utf-8"))
+            return _FakeResponse()
+
+        with patch.object(
+            llm_client, "AZURE_OPENAI_ENDPOINT", "https://example.test/openai/v1/responses"
+        ), patch.object(llm_client, "AZURE_OPENAI_API_KEY", "key"), patch.object(
+            llm_client, "AZURE_OPENAI_DEPLOYMENT", "gpt-5-nano-file"
+        ), patch(
+            "gmail_service.llm_client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            llm_client.call_azure_openai("read this document", {"type": "object"})
+
+        content = captured["payload"]["input"][0]["content"]
+        self.assertEqual(content, "read this document")
+
+    def test_gemini_image_is_passed_as_a_part_alongside_the_prompt(self) -> None:
+        fake_part = object()
+        mock_response = Mock()
+        mock_response.text = "{}"
+        mock_generate_content = Mock(return_value=mock_response)
+
+        with patch.object(llm_client, "GEMINI_API_KEY", "key"), patch(
+            "google.genai.Client"
+        ) as mock_client_cls, patch(
+            "google.genai.types.Part.from_bytes", return_value=fake_part
+        ) as mock_from_bytes:
+            mock_client_cls.return_value.models.generate_content = mock_generate_content
+
+            llm_client.call_gemini(
+                "read this document",
+                {"type": "object"},
+                image_bytes=b"fake-bytes",
+                image_mime_type="image/png",
+            )
+
+        mock_from_bytes.assert_called_once_with(
+            data=b"fake-bytes", mime_type="image/png"
+        )
+        _, kwargs = mock_generate_content.call_args
+        self.assertEqual(kwargs["contents"], ["read this document", fake_part])
+        self.assertEqual(kwargs["config"].response_json_schema, {"type": "object"})
+        self.assertEqual(kwargs["config"].response_mime_type, "application/json")
 
 
 class ExtractionSchemaTest(unittest.TestCase):
@@ -148,6 +270,30 @@ class MergeRecordsTest(unittest.TestCase):
 
         self.assertEqual(merged["doc_type"], "arrival_notice")
 
+    def test_cargo_lines_from_the_model_pass_through_untouched(self) -> None:
+        # There is no regex for a goods table — rows only ever come from the LLM.
+        rules = {"identifiers": {}, "route": {}}
+        llm = {
+            "identifiers": {},
+            "route": {},
+            "cargo_lines": [
+                {
+                    "description": "CNC machine tools",
+                    "hs_code": "8466.93.00",
+                    "origin": "DE",
+                    "quantity": "2 Bo",
+                    "unit_price": 5200.0,
+                    "amount": 10400.0,
+                    "currency": "USD",
+                }
+            ],
+        }
+
+        merged = merge_records(rules, llm)
+
+        self.assertEqual(len(merged["cargo_lines"]), 1)
+        self.assertEqual(merged["cargo_lines"][0]["hs_code"], "8466.93.00")
+
 
 class ExtractFieldsTest(unittest.TestCase):
     def test_rules_only_when_no_provider_is_configured(self) -> None:
@@ -195,6 +341,61 @@ class ExtractFieldsTest(unittest.TestCase):
             result = extract_fields(None, None, None)
 
         self.assertEqual(result["doc_type"], "other")
+
+
+class ExtractFieldsFromImageTest(unittest.TestCase):
+    """Images have no text layer, so this path has no partial/rules-fallback
+    state the way `extract_fields` does — only doc_type gets a best-effort
+    guess when no vision provider is configured or the call fails."""
+
+    def test_no_provider_configured_fails_with_subject_only_guess(self) -> None:
+        with patch.object(field_extract, "EXTRACTION_PROVIDER", "none"):
+            result = extract_fields_from_image(
+                "To khai Hai quan (thong quan) - MSCU1234567",
+                "docs@forwarder-demo.com",
+                b"fake-bytes",
+                "image/jpeg",
+            )
+
+        self.assertEqual(result["doc_type"], "customs_declaration")
+        self.assertEqual(result["extraction_status"], "failed")
+        self.assertEqual(result["extraction_method"], "deterministic")
+        self.assertIn("vision LLM", result["extraction_error"])
+
+    def test_vision_call_failure_degrades_to_failed_not_partial(self) -> None:
+        with patch.object(field_extract, "EXTRACTION_PROVIDER", "azure_openai"), patch.object(
+            field_extract, "call_llm_vision", side_effect=RuntimeError("429 rate limited")
+        ):
+            result = extract_fields_from_image(
+                "Arrival Notice - MSCU1234567", "ops@carrier.com", b"fake-bytes", "image/jpeg"
+            )
+
+        self.assertEqual(result["extraction_status"], "failed")
+        self.assertEqual(result["extraction_method"], "deterministic")
+        self.assertIn("429", result["extraction_error"])
+        self.assertEqual(result["doc_type"], "arrival_notice")
+
+    def test_successful_vision_call_uses_llm_extraction_method(self) -> None:
+        llm_payload = {
+            "doc_type": "customs_declaration",
+            "doc_type_confidence": 0.95,
+            "identifiers": {"container_no": [], "declaration_no": "108234567890"},
+            "route": {"pod": "Cat Lai"},
+        }
+
+        with patch.object(field_extract, "EXTRACTION_PROVIDER", "azure_openai"), patch.object(
+            field_extract, "call_llm_vision", return_value=llm_payload
+        ):
+            result = extract_fields_from_image(
+                "To khai Hai quan - MSCU1234567",
+                "docs@forwarder-demo.com",
+                b"fake-bytes",
+                "image/jpeg",
+            )
+
+        self.assertEqual(result["extraction_method"], "llm")
+        self.assertEqual(result["extraction_status"], "ok")
+        self.assertEqual(result["identifiers"]["declaration_no"], "108234567890")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 import base64
 import json
 from urllib.parse import urlencode
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
@@ -15,6 +16,7 @@ from db.database import get_db
 from gmail_service.auth import build_authorization_url, exchange_code_for_tokens
 from gmail_service.config import GMAIL_FRONTEND_RETURN_URL
 from services.gmail_connection_service import (
+    disconnect_gmail_connection,
     list_gmail_connections,
     upsert_gmail_connection,
 )
@@ -36,6 +38,17 @@ async def create_or_update_gmail_connection(
     db: AsyncSession = Depends(get_db),
 ) -> GmailConnectionResponse:
     return await upsert_gmail_connection(db, payload)
+
+
+@router.post("/{connection_id}/disconnect", response_model=GmailConnectionResponse)
+async def disconnect_gmail_connection_endpoint(
+    connection_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> GmailConnectionResponse:
+    connection = await disconnect_gmail_connection(db, connection_id)
+    if connection is None:
+        raise HTTPException(status_code=404, detail="Gmail connection not found")
+    return connection
 
 
 @router.get("/oauth/start", response_model=GmailOAuthStartResponse)

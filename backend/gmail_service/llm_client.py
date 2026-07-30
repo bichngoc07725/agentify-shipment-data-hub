@@ -1,18 +1,24 @@
 """LLM clients used for logistics document extraction.
 
-Two providers are supported:
+Two providers are supported, both constrained by the same strict JSON schema
+(`field_extract.EXTRACTION_SCHEMA`) so neither can return a field with the
+wrong shape or omit one outright:
 
-- `azure_openai` — Azure AI Foundry Responses API with a strict JSON schema, so
-  the model cannot return anything but a conforming object.
-- `gemini` — kept for backward compatibility; the model is asked for JSON and
-  the response is parsed defensively.
+- `azure_openai` — Azure AI Foundry Responses API's `json_schema` strict mode.
+- `gemini` — `GenerateContentConfig.response_json_schema`, the equivalent
+  structured-output mode on Gemini's side.
 
 Azure is called with `urllib` rather than an SDK so the backend keeps its
 current dependency set.
+
+Both `call_azure_openai` and `call_gemini` accept an optional image (bytes +
+mime type) alongside the text prompt, for reading photographed/scanned
+documents that have no text layer to extract first.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import urllib.error
 import urllib.request
@@ -42,16 +48,36 @@ def call_azure_openai(
     prompt: str,
     schema: dict[str, Any],
     schema_name: str = "logistics_document",
+    *,
+    image_bytes: bytes | None = None,
+    image_mime_type: str | None = None,
 ) -> dict[str, Any]:
-    """Call the Azure Responses API and return the parsed structured output."""
+    """Call the Azure Responses API and return the parsed structured output.
+
+    Pass `image_bytes`/`image_mime_type` to send a photographed/scanned
+    document as an `input_image` content part alongside the text prompt,
+    instead of (or in addition to) already-extracted text.
+    """
     if not azure_is_configured():
         raise ExtractionUnavailable(
             "Azure extraction needs endpoint, api_key and deployment to be set"
         )
 
+    text_content = prompt[:AZURE_OPENAI_MAX_INPUT_CHARS]
+    content: Any = text_content
+    if image_bytes is not None:
+        encoded = base64.b64encode(image_bytes).decode("ascii")
+        content = [
+            {"type": "input_text", "text": text_content},
+            {
+                "type": "input_image",
+                "image_url": f"data:{image_mime_type};base64,{encoded}",
+            },
+        ]
+
     payload = {
         "model": AZURE_OPENAI_DEPLOYMENT,
-        "input": [{"role": "user", "content": prompt[:AZURE_OPENAI_MAX_INPUT_CHARS]}],
+        "input": [{"role": "user", "content": content}],
         "text": {
             "format": {
                 "type": "json_schema",
@@ -108,13 +134,33 @@ def _azure_output_text(body: dict[str, Any]) -> str:
     raise RuntimeError("Azure extraction returned no message content")
 
 
-def call_gemini(prompt: str) -> dict[str, Any]:
+def call_gemini(
+    prompt: str,
+    schema: dict[str, Any],
+    *,
+    image_bytes: bytes | None = None,
+    image_mime_type: str | None = None,
+) -> dict[str, Any]:
     if not GEMINI_API_KEY:
         raise ExtractionUnavailable("GEMINI_API_KEY is required for Gemini extraction")
 
     from google import genai
+    from google.genai import types
+
+    contents: Any = prompt
+    if image_bytes is not None:
+        contents = [
+            prompt,
+            types.Part.from_bytes(data=image_bytes, mime_type=image_mime_type),
+        ]
 
     client = genai.Client(api_key=GEMINI_API_KEY)
-    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_json_schema=schema,
+    )
+    response = client.models.generate_content(
+        model=GEMINI_MODEL, contents=contents, config=config
+    )
     raw = response.text.strip().removeprefix("```json").removesuffix("```").strip()
     return json.loads(raw)

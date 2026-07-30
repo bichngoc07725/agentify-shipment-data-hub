@@ -182,7 +182,9 @@ class DocumentChecklistTest(unittest.TestCase):
     def test_missing_documents_are_listed(self) -> None:
         missing = missing_documents("import", {"arrival_notice", "invoice"})
 
-        self.assertEqual(missing, ["bill_of_lading", "delivery_order"])
+        self.assertEqual(
+            missing, ["bill_of_lading", "delivery_order", "customs_declaration"]
+        )
 
     def test_document_name_variants_count_towards_the_checklist(self) -> None:
         # A draft B/L is the bill of lading at draft stage, and the extractor
@@ -191,8 +193,10 @@ class DocumentChecklistTest(unittest.TestCase):
             canonical_document_types({"draft_bl", "commercial_invoice", "booking_note"}),
             {"bill_of_lading", "invoice", "booking_confirmation"},
         )
-        self.assertEqual(missing_documents("export", {"draft_bl"}),
-                         ["booking_confirmation", "invoice", "packing_list"])
+        self.assertEqual(
+            missing_documents("export", {"draft_bl"}),
+            ["booking_confirmation", "invoice", "packing_list", "customs_declaration"],
+        )
 
     def test_canonical_types_are_idempotent(self) -> None:
         already_canonical = {"bill_of_lading", "invoice"}
@@ -246,8 +250,8 @@ class MentionedVersusOnFileTest(unittest.TestCase):
             documents_mentioned={"delivery_order", "invoice"},
         )
 
-        # 1 of 4 import documents on file, regardless of what was mentioned.
-        self.assertEqual(profile.completeness, 0.25)
+        # 1 of 5 import documents on file, regardless of what was mentioned.
+        self.assertEqual(profile.completeness, 0.2)
 
     def test_the_exception_separates_mentioned_from_unaccounted(self) -> None:
         exceptions = detect_exceptions(
@@ -354,11 +358,14 @@ class RiskProfileTest(unittest.TestCase):
         )
 
         self.assertEqual(profile.direction, "import")
-        self.assertEqual(profile.completeness, 0.5)
+        self.assertEqual(profile.completeness, 0.4)
         self.assertEqual(
             profile.documents_present, ["arrival_notice", "bill_of_lading"]
         )
-        self.assertEqual(profile.documents_missing, ["delivery_order", "invoice"])
+        self.assertEqual(
+            profile.documents_missing,
+            ["delivery_order", "invoice", "customs_declaration"],
+        )
         self.assertEqual(profile.free_time_expires_on, date(2026, 8, 14))
         self.assertFalse(profile.free_time_is_assumed)
 

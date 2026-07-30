@@ -47,3 +47,22 @@ class AppHomeServiceTest(IsolatedAsyncioTestCase):
         self.assertEqual(payload.recent_containers[0].booking_no, "BKG-88921")
         self.assertEqual(payload.recent_containers[0].bl_no, "HLCUSHA250601234")
         self.assertEqual(payload.recent_containers[0].pod, "Hai Phong")
+
+    async def test_disconnected_mailboxes_are_not_shown_as_connected(self):
+        connected = SimpleNamespace(
+            id=uuid4(), account_email="active@agentify.vn", status="connected"
+        )
+        disconnected = SimpleNamespace(
+            id=uuid4(), account_email="old@agentify.vn", status="disconnected"
+        )
+
+        payload = await build_app_home_payload(
+            db=AsyncMock(),
+            list_connections=AsyncMock(return_value=[connected, disconnected]),
+            get_latest_completed_job=AsyncMock(return_value=None),
+            list_recent_containers=AsyncMock(return_value=[]),
+            count_containers=AsyncMock(return_value=0),
+        )
+
+        emails = [mailbox.account_email for mailbox in payload.connected_mailboxes]
+        self.assertEqual(emails, ["active@agentify.vn"])

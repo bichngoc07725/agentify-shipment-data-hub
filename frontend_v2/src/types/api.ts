@@ -122,6 +122,9 @@ export interface ManualIngestRequest {
   source_label?: string;
   sender?: string;
   occurred_at?: string;
+  image_base64?: string;
+  image_mime_type?: string;
+  image_filename?: string;
 }
 
 export interface ManualIngestPreview {

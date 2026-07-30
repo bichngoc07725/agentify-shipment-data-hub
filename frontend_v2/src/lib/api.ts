@@ -33,6 +33,8 @@ export const api = {
   gmailConnections: () => req<GmailConnection[]>('/api/v1/gmail-connections'),
   startOAuth: (redirect_to?: string) =>
     req<{ authorization_url: string }>(`/api/v1/gmail-connections/oauth/start${qs({ redirect_to })}`),
+  disconnectGmailConnection: (id: string) =>
+    req<GmailConnection>(`/api/v1/gmail-connections/${encodeURIComponent(id)}/disconnect`, { method: 'POST' }),
   createSyncJob: (body: { gmail_connection_id: string; query?: string; max_results?: number }) =>
     req<SyncJob>('/api/v1/sync-jobs', { method: 'POST', body: JSON.stringify(body) }),
   runSyncJob: (id: string) =>

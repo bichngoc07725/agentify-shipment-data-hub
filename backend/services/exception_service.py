@@ -42,8 +42,20 @@ CHARGE_DOCUMENT_TYPES = {"debit_note", "invoice"}
 # Minimum document set per shipment direction. Import is the default because the
 # beachhead segment is import-heavy.
 REQUIRED_DOCUMENTS: dict[str, tuple[str, ...]] = {
-    "import": ("arrival_notice", "bill_of_lading", "delivery_order", "invoice"),
-    "export": ("booking_confirmation", "bill_of_lading", "invoice", "packing_list"),
+    "import": (
+        "arrival_notice",
+        "bill_of_lading",
+        "delivery_order",
+        "invoice",
+        "customs_declaration",
+    ),
+    "export": (
+        "booking_confirmation",
+        "bill_of_lading",
+        "invoice",
+        "packing_list",
+        "customs_declaration",
+    ),
 }
 
 # Extractors and carriers name the same document differently. Without this the
@@ -67,6 +79,7 @@ DOCUMENT_LABELS = {
     "packing_list": "Packing List",
     "debit_note": "Debit Note",
     "certificate_of_origin": "Certificate of Origin",
+    "customs_declaration": "Tờ khai Hải quan",
 }
 
 

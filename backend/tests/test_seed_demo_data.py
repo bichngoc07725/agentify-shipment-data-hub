@@ -12,7 +12,7 @@ class BuildDemoPayloadsTest(unittest.TestCase):
 
         payloads = build_demo_payloads(gmail_connection_id, sync_job_id)
 
-        self.assertEqual(len(payloads), 15)
+        self.assertEqual(len(payloads), 16)
         self.assertTrue(
             all(isinstance(payload, ProcessedEmailIngestRequest) for payload in payloads)
         )
@@ -21,7 +21,7 @@ class BuildDemoPayloadsTest(unittest.TestCase):
             {gmail_connection_id},
         )
         self.assertEqual({payload.sync_job_id for payload in payloads}, {sync_job_id})
-        self.assertEqual(sum(len(payload.attachments) for payload in payloads), 14)
+        self.assertEqual(sum(len(payload.attachments) for payload in payloads), 15)
         self.assertTrue(
             any(
                 fact.field_name == "eta" and fact.normalized_value == "2026-06-14"

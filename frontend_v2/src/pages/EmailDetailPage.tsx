@@ -115,16 +115,21 @@ export function EmailDetailPage() {
             {activeAttachment && (
               <div style={{ marginTop: 12, padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)', borderRadius: 10 }}>
                 <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 8, color: 'var(--text-secondary)' }}>{activeAttachment.filename}</div>
-                {activeAttachment.text_extract_status === 'completed' ? (
+                {activeAttachment.text_extract_status === 'extracted' ? (
                   activeAttachment.extracted_record ? (
                     <pre style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 200, overflow: 'auto' }}>
                       {JSON.stringify(activeAttachment.extracted_record, null, 2)}
                     </pre>
                   ) : <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Text extracted — no structured fields found.</span>
-                ) : activeAttachment.text_extract_status === 'no_text_layer' ? (
+                ) : activeAttachment.text_extract_status === 'empty' ? (
                   <div>
-                    <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 4 }}>Unsupported in prototype</p>
-                    <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>This prototype only processes text-based PDFs.</p>
+                    <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 4 }}>No text layer</p>
+                    <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>This PDF has no extractable text and no OCR ran for it.</p>
+                  </div>
+                ) : activeAttachment.text_extract_status === 'failed' ? (
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 4 }}>OCR failed</p>
+                    <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No vision provider was configured, or the request failed. See extraction_error in the extracted record above.</p>
                   </div>
                 ) : (
                   <span className="badge badge-neutral">{activeAttachment.text_extract_status}</span>
@@ -203,8 +208,8 @@ export function EmailDetailPage() {
 }
 
 function AttachmentStatusBadge({ status }: { status: string }) {
-  if (status === 'completed') return <span className="badge badge-success" style={{ fontSize: 10 }}>Extracted</span>;
-  if (status === 'no_text_layer') return <span className="badge badge-warning" style={{ fontSize: 10 }}>No text layer</span>;
+  if (status === 'extracted') return <span className="badge badge-success" style={{ fontSize: 10 }}>Extracted</span>;
+  if (status === 'empty') return <span className="badge badge-warning" style={{ fontSize: 10 }}>No text layer</span>;
   if (status === 'failed') return <span className="badge badge-danger" style={{ fontSize: 10 }}>Failed</span>;
   return <span className="badge badge-neutral" style={{ fontSize: 10 }}>{status}</span>;
 }

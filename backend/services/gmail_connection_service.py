@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import GmailConnectionUpsertRequest
 from db.models import GmailConnection
+from gmail_service.auth import revoke_token
 
 
 async def upsert_gmail_connection(
@@ -33,6 +34,7 @@ async def upsert_gmail_connection(
     connection.access_scope = payload.access_scope
     connection.status = payload.status
     await db.flush()
+    await db.refresh(connection)
     return connection
 
 
@@ -47,3 +49,24 @@ async def get_gmail_connection(
     db: AsyncSession, connection_id
 ) -> GmailConnection | None:
     return await db.get(GmailConnection, connection_id)
+
+
+async def disconnect_gmail_connection(
+    db: AsyncSession, connection_id
+) -> GmailConnection | None:
+    """Log the mailbox out: revoke the refresh token at Google and forget our
+    local copy, so a future "Connect Gmail" for this or a different account
+    starts from a clean slate rather than silently reusing stale credentials.
+    """
+    connection = await db.get(GmailConnection, connection_id)
+    if connection is None:
+        return None
+
+    if connection.encrypted_refresh_token:
+        revoke_token(connection.encrypted_refresh_token)
+
+    connection.status = "disconnected"
+    connection.encrypted_refresh_token = None
+    await db.flush()
+    await db.refresh(connection)
+    return connection

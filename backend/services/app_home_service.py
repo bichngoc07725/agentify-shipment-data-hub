@@ -13,7 +13,11 @@ async def build_app_home_payload(
     list_recent_containers=get_recent_containers,
     count_containers=get_container_count,
 ) -> AppHomeResponse:
-    connections = await list_connections(db)
+    connections = [
+        connection
+        for connection in await list_connections(db)
+        if connection.status == "connected"
+    ]
     latest_job = await get_latest_completed_job(db)
     recent_containers = await list_recent_containers(db, limit=6)
     container_count = await count_containers(db)

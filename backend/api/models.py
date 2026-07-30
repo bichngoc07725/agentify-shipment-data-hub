@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class HealthResponse(BaseModel):
@@ -176,10 +176,23 @@ class ManualIngestRequest(BaseModel):
     """
 
     channel: Literal["zalo", "note", "other"] = "zalo"
-    content: str = Field(min_length=1, max_length=20000)
+    content: str = Field(default="", max_length=20000)
     source_label: str | None = Field(default=None, max_length=255)
     sender: str | None = Field(default=None, max_length=255)
     occurred_at: datetime | None = None
+    # A pasted photo (e.g. a screenshot of a Zalo chat, a POD/EIR photo).
+    # Base64-encoded rather than multipart so this stays a single JSON body
+    # like the rest of this request, matching how the frontend paste handler
+    # already reads clipboard images as data URLs.
+    image_base64: str | None = Field(default=None, max_length=14_000_000)
+    image_mime_type: str | None = Field(default=None, max_length=100)
+    image_filename: str | None = Field(default=None, max_length=255)
+
+    @model_validator(mode="after")
+    def _content_or_image_required(self) -> "ManualIngestRequest":
+        if not self.content.strip() and not self.image_base64:
+            raise ValueError("Provide message content, a pasted image, or both")
+        return self
 
 
 class ManualIngestPreviewResponse(BaseModel):

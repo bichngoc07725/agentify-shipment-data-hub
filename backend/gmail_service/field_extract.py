@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from gmail_service.config import EXTRACTION_PROVIDER
-from gmail_service.deterministic_extract import extract_deterministic
+from gmail_service.deterministic_extract import classify_document, extract_deterministic
 from gmail_service.llm_client import (
     ExtractionUnavailable,
     call_azure_openai,
@@ -30,6 +30,7 @@ RULE_OWNED_IDENTIFIERS = (
     "po_no",
     "do_no",
     "invoice_no",
+    "declaration_no",
 )
 
 # Rules own the route dates because `05/07/2026` is 5 July on a Vietnamese
@@ -40,13 +41,14 @@ RULE_OWNED_ROUTE_FIELDS = ("etd", "eta", "ata")
 _PARTY_SCHEMA = {
     "type": ["object", "null"],
     "additionalProperties": False,
-    "required": ["name", "address", "contact_person", "email", "phone"],
+    "required": ["name", "address", "contact_person", "email", "phone", "tax_code"],
     "properties": {
         "name": {"type": ["string", "null"]},
         "address": {"type": ["string", "null"]},
         "contact_person": {"type": ["string", "null"]},
         "email": {"type": ["string", "null"]},
         "phone": {"type": ["string", "null"]},
+        "tax_code": {"type": ["string", "null"]},
     },
 }
 
@@ -72,7 +74,9 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
         "notify_party",
         "route",
         "cargo",
+        "cargo_lines",
         "charges",
+        "customs",
     ],
     "properties": {
         "doc_type": {
@@ -86,6 +90,7 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
                 "debit_note",
                 "delivery_order",
                 "certificate_of_origin",
+                "customs_declaration",
                 "other",
             ],
         },
@@ -113,6 +118,7 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
                 "job_no",
                 "invoice_no",
                 "hs_code",
+                "declaration_no",
             ],
             "properties": {
                 "container_no": {"type": "array", "items": {"type": "string"}},
@@ -127,6 +133,7 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
                 "job_no": {"type": ["string", "null"]},
                 "invoice_no": {"type": ["string", "null"]},
                 "hs_code": {"type": ["string", "null"]},
+                "declaration_no": {"type": ["string", "null"]},
             },
         },
         "issuer": _PARTY_SCHEMA,
@@ -181,6 +188,31 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
                 "marks_numbers": {"type": ["string", "null"]},
             },
         },
+        "cargo_lines": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": [
+                    "description",
+                    "hs_code",
+                    "origin",
+                    "quantity",
+                    "unit_price",
+                    "amount",
+                    "currency",
+                ],
+                "properties": {
+                    "description": {"type": ["string", "null"]},
+                    "hs_code": {"type": ["string", "null"]},
+                    "origin": {"type": ["string", "null"]},
+                    "quantity": {"type": ["string", "null"]},
+                    "unit_price": {"type": ["number", "null"]},
+                    "amount": {"type": ["number", "null"]},
+                    "currency": {"type": ["string", "null"]},
+                },
+            },
+        },
         "charges": {
             "type": "array",
             "items": {
@@ -202,6 +234,30 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
                 },
             },
         },
+        "customs": {
+            "type": ["object", "null"],
+            "additionalProperties": False,
+            "required": [
+                "declaration_type_code",
+                "direction",
+                "customs_office",
+                "clearance_lane",
+                "registration_date",
+                "clearance_date",
+                "total_tax_amount",
+                "tax_currency",
+            ],
+            "properties": {
+                "declaration_type_code": {"type": ["string", "null"]},
+                "direction": {"type": ["string", "null"]},
+                "customs_office": {"type": ["string", "null"]},
+                "clearance_lane": {"type": ["string", "null"]},
+                "registration_date": {"type": ["string", "null"]},
+                "clearance_date": {"type": ["string", "null"]},
+                "total_tax_amount": {"type": ["number", "null"]},
+                "tax_currency": {"type": ["string", "null"]},
+            },
+        },
     },
 }
 
@@ -219,6 +275,16 @@ Rules:
 - Never copy one date into another field. If the document states ETA but not ETD,
   leave etd null. The same applies to eta and ata.
 - Container numbers are 4 letters + 7 digits.
+- declaration_no (số tờ khai) is the customs declaration number, a 6-14 digit
+  code. Do not confuse it with booking_no, bl_no, po_no or invoice_no.
+- The `customs` object only applies to a customs_declaration document
+  (Vietnamese "tờ khai hải quan" / "tờ khai hàng hóa xuất khẩu/nhập khẩu").
+  Leave every field in it null for any other document type.
+- cargo_lines is for a multi-row goods table (one row per HS code / item —
+  columns like "Mô tả hàng hóa", "Mã số hàng hóa", "Xuất xứ", "Lượng hàng",
+  "Đơn giá", "Trị giá"). Emit one cargo_lines entry per row, in the order they
+  appear. Use `cargo` instead only when the document describes a single,
+  unlisted shipment as one summary (no row-by-row table).
 
 --- SUBJECT ---
 {subject}
@@ -237,10 +303,79 @@ def call_llm(subject: str, sender: str, text: str) -> dict[str, Any]:
     if EXTRACTION_PROVIDER == "azure_openai":
         return call_azure_openai(prompt, EXTRACTION_SCHEMA)
     if EXTRACTION_PROVIDER == "gemini":
-        return call_gemini(prompt)
+        return call_gemini(prompt, EXTRACTION_SCHEMA)
     raise ExtractionUnavailable(
         f"No LLM extraction provider configured (provider={EXTRACTION_PROVIDER!r})"
     )
+
+
+def call_llm_vision(
+    subject: str, sender: str, image_bytes: bytes, mime_type: str
+) -> dict[str, Any]:
+    prompt = build_prompt(subject, sender, "(no text layer — read the attached document image)")
+    if EXTRACTION_PROVIDER == "azure_openai":
+        return call_azure_openai(
+            prompt, EXTRACTION_SCHEMA, image_bytes=image_bytes, image_mime_type=mime_type
+        )
+    if EXTRACTION_PROVIDER == "gemini":
+        return call_gemini(
+            prompt, EXTRACTION_SCHEMA, image_bytes=image_bytes, image_mime_type=mime_type
+        )
+    raise ExtractionUnavailable(
+        f"No LLM extraction provider configured (provider={EXTRACTION_PROVIDER!r})"
+    )
+
+
+def extract_fields_from_image(
+    subject: str, sender: str, image_bytes: bytes, mime_type: str
+) -> dict[str, Any]:
+    """Extract fields from a photographed/scanned document via a vision LLM.
+
+    There is no text layer to regex against here, so unlike `extract_fields`
+    this has no partial/deterministic-fallback state for the fields
+    themselves — only doc_type gets a best-effort guess from the subject line
+    when no vision provider is configured or the call fails. On success,
+    extraction_method is "llm" (never "hybrid" — rules contributed nothing).
+    """
+    subject = subject or ""
+    sender = sender or ""
+    doc_type, doc_type_confidence = classify_document(subject, "")
+
+    if EXTRACTION_PROVIDER == "none":
+        return {
+            "doc_type": doc_type,
+            "doc_type_confidence": doc_type_confidence,
+            "identifiers": {},
+            "route": {},
+            "extraction_status": "failed",
+            "extraction_method": "deterministic",
+            "extraction_error": (
+                "No LLM extraction provider configured; image documents "
+                "require a vision LLM."
+            ),
+        }
+
+    try:
+        llm = call_llm_vision(subject, sender, image_bytes, mime_type)
+    except Exception as exc:
+        return {
+            "doc_type": doc_type,
+            "doc_type_confidence": doc_type_confidence,
+            "identifiers": {},
+            "route": {},
+            "extraction_status": "failed",
+            "extraction_method": "deterministic",
+            "extraction_error": str(exc),
+        }
+
+    llm.setdefault("identifiers", {})
+    llm.setdefault("route", {})
+    llm["extraction_method"] = "llm"
+    llm["extraction_status"] = "ok"
+    if float(llm.get("doc_type_confidence") or 0) < doc_type_confidence:
+        llm["doc_type"] = doc_type
+        llm["doc_type_confidence"] = doc_type_confidence
+    return llm
 
 
 def extract_fields(subject: str, sender: str, pdf_text: str) -> dict[str, Any]:

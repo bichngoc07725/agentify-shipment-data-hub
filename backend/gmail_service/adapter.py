@@ -23,6 +23,7 @@ SUMMARY_FIELDS = (
     "bl_no",
     "po_no",
     "do_no",
+    "declaration_no",
     "vessel",
     "voyage",
     "pol",
@@ -65,7 +66,7 @@ class AttachmentExtractionResult:
     def __init__(
         self,
         attachment: GmailAttachmentPayload,
-        extracted_text: str,
+        extracted_text: str | None,
         text_extract_status: str,
         record: ExtractedRecord,
     ) -> None:
@@ -102,7 +103,10 @@ def build_processed_email_request(
                 email.gmail_message_id,
                 result.attachment,
             ),
-            is_text_pdf=result.text_extract_status == "extracted",
+            is_text_pdf=(
+                not result.attachment.mime_type.startswith("image/")
+                and result.text_extract_status == "extracted"
+            ),
             text_extract_status=result.text_extract_status,
             extracted_text=result.extracted_text,
             document_type=result.record.doc_type,
@@ -113,10 +117,15 @@ def build_processed_email_request(
 
     extracted_facts: list[IngestFactRequest] = []
     for result in attachment_results:
+        source_type = (
+            "image_vision"
+            if result.attachment.mime_type.startswith("image/")
+            else "pdf_text"
+        )
         extracted_facts.extend(
             _build_record_facts(
                 record=result.record,
-                source_type="pdf_text",
+                source_type=source_type,
                 source_label=result.attachment.filename,
                 attachment_filename=result.attachment.filename,
                 confidence=Decimal(str(result.record.doc_type_confidence)),

@@ -1539,6 +1539,93 @@ def build_demo_payloads(
                 ),
             ],
         ),
+        ProcessedEmailIngestRequest(
+            gmail_connection_id=gmail_connection_id,
+            sync_job_id=sync_job_id,
+            gmail_message_id="demo-msg-016",
+            gmail_thread_id="demo-thread-001",
+            subject="To khai Hai quan (thong quan) - MSCU1234567 - TK 108234567890",
+            from_email="docs@dai-duong-logistics-demo.vn",
+            to_emails=["ops@agentify.vn"],
+            sent_at=_dt("2026-06-16T09:20:00Z"),
+            snippet="Da thong quan container MSCU1234567, so to khai 108234567890.",
+            body_text=(
+                "Gui anh/chi to khai hai quan da thong quan cho container "
+                "MSCU1234567, so to khai 108234567890."
+            ),
+            raw_labels=["INBOX", "LOGISTICS"],
+            has_pdf_attachments=True,
+            attachments=[
+                IngestAttachmentRequest(
+                    gmail_attachment_id="demo-att-016",
+                    filename="customs_declaration_mscu1234567_demo.pdf",
+                    mime_type="application/pdf",
+                    size_bytes=9_491,
+                    storage_path="/demo/customs_declaration_mscu1234567_demo.pdf",
+                    is_text_pdf=True,
+                    text_extract_status="extracted",
+                    extracted_text=(
+                        "So to khai: 108234567890\n"
+                        "Ma loai hinh: A11 2 [4]\n"
+                        "Nguoi nhap khau: CONG TY TNHH XUAT NHAP KHAU DAI DUONG\n"
+                        "So van don: HBLGER2607001\n"
+                        "So hieu container: MSCU1234567\n"
+                        "Phuong tien van chuyen: MV NORTHERN LYRA / 074E\n"
+                        "Dia diem xep hang: HAMBURG\n"
+                        "Dia diem do hang: CANG CAT LAI (HCM)\n"
+                        "Ngay hang den: 05/07/2026\n"
+                        "Ma ket qua phan luong: Vang (2)\n"
+                        "Tong so tien thue phai nop: VND 22,506,000"
+                    ),
+                    document_type="customs_declaration",
+                )
+            ],
+            extracted_facts=[
+                IngestFactRequest(
+                    field_name="container_no",
+                    field_value="MSCU1234567",
+                    normalized_value="MSCU1234567",
+                    container_no="MSCU1234567",
+                    source_type="pdf_text",
+                    source_label="So hieu container: MSCU1234567",
+                    document_type="customs_declaration",
+                    confidence=Decimal("0.9800"),
+                    attachment_filename="customs_declaration_mscu1234567_demo.pdf",
+                ),
+                IngestFactRequest(
+                    field_name="declaration_no",
+                    field_value="108234567890",
+                    normalized_value="108234567890",
+                    container_no="MSCU1234567",
+                    source_type="pdf_text",
+                    source_label="So to khai: 108234567890",
+                    document_type="customs_declaration",
+                    confidence=Decimal("0.9800"),
+                    attachment_filename="customs_declaration_mscu1234567_demo.pdf",
+                ),
+                IngestFactRequest(
+                    field_name="bl_no",
+                    field_value="HBLGER2607001",
+                    normalized_value="HBLGER2607001",
+                    container_no="MSCU1234567",
+                    source_type="pdf_text",
+                    source_label="So van don: HBLGER2607001",
+                    document_type="customs_declaration",
+                    confidence=Decimal("0.9600"),
+                    attachment_filename="customs_declaration_mscu1234567_demo.pdf",
+                ),
+                IngestFactRequest(
+                    field_name="status_text",
+                    field_value="Da thong quan",
+                    normalized_value="Da thong quan",
+                    container_no="MSCU1234567",
+                    source_type="email_body",
+                    source_label="Da thong quan container MSCU1234567.",
+                    document_type="customs_declaration",
+                    confidence=Decimal("0.9500"),
+                ),
+            ],
+        ),
     ]
 
     for payload in payloads:

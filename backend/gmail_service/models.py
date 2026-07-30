@@ -1,7 +1,27 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _coerce_to_str(value: object) -> object:
+    # Azure's strict schema always returns quantity as a string ("2 Bo"), but
+    # Gemini's non-strict JSON mode sometimes reads a numeric-looking field as
+    # a bare number (2.0) instead, dropping the unit. Accept either shape
+    # rather than failing validation over a provider-specific quirk.
+    if isinstance(value, (int, float)):
+        return str(value)
+    return value
+
+
+def _coerce_name_like_to_str(value: object) -> object:
+    # Gemini's non-strict JSON mode has, in practice, returned a plain string
+    # field (e.g. carrier) as a nested object instead — `{"name": "Maersk"}` —
+    # as if it confused it with a Party. Pull `name` out if present rather
+    # than failing validation.
+    if isinstance(value, dict):
+        return value.get("name")
+    return value
 
 DocType = Literal[
     "arrival_notice",
@@ -12,6 +32,7 @@ DocType = Literal[
     "debit_note",
     "delivery_order",
     "certificate_of_origin",
+    "customs_declaration",
     "other",
 ]
 
@@ -38,6 +59,7 @@ class Identifiers(BaseModel):
     job_no: str | None = None
     invoice_no: str | None = None
     hs_code: str | None = None
+    declaration_no: str | None = None
 
 
 class Party(BaseModel):
@@ -46,6 +68,7 @@ class Party(BaseModel):
     contact_person: str | None = None
     email: str | None = None
     phone: str | None = None
+    tax_code: str | None = None
 
 
 class Route(BaseModel):
@@ -77,6 +100,35 @@ class Charge(BaseModel):
     amount: float | None = None
     vat_rate: str | None = None
 
+    _coerce_quantity = field_validator("quantity", mode="before")(_coerce_to_str)
+
+
+class CargoLine(BaseModel):
+    """One row of a multi-item goods table (packing list, customs
+    declaration's HS-code table, invoice line items) — as opposed to `Cargo`,
+    which is a single aggregate summary for a document with only one item."""
+
+    description: str | None = None
+    hs_code: str | None = None
+    origin: str | None = None
+    quantity: str | None = None
+    unit_price: float | None = None
+    amount: float | None = None
+    currency: str | None = None
+
+    _coerce_quantity = field_validator("quantity", mode="before")(_coerce_to_str)
+
+
+class CustomsDeclaration(BaseModel):
+    declaration_type_code: str | None = None
+    direction: str | None = None
+    customs_office: str | None = None
+    clearance_lane: str | None = None
+    registration_date: str | None = None
+    clearance_date: str | None = None
+    total_tax_amount: float | None = None
+    tax_currency: str | None = None
+
 
 class ExtractedRecord(BaseModel):
     source: Source
@@ -95,11 +147,15 @@ class ExtractedRecord(BaseModel):
     customer_name: str | None = None
     route: Route
     cargo: Cargo | None = None
+    cargo_lines: list[CargoLine] = Field(default_factory=list)
     charges: list[Charge] = Field(default_factory=list)
+    customs: CustomsDeclaration | None = None
     free_time_days: int | None = None
     extraction_status: Literal["ok", "partial", "failed"] = "ok"
     extraction_method: Literal["deterministic", "llm", "hybrid"] = "deterministic"
     extraction_error: str | None = None
+
+    _coerce_carrier = field_validator("carrier", mode="before")(_coerce_name_like_to_str)
 
 
 class GmailAttachmentPayload(BaseModel):

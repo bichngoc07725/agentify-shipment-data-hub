@@ -1,8 +1,40 @@
 import { useState } from 'react';
+import type { ClipboardEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle, Search, Send } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Image as ImageIcon, Search, Send, X } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { ManualIngestPreview, ManualIngestResult } from '../../types/api';
+
+interface PastedImage {
+  base64: string;
+  mimeType: string;
+  filename: string;
+  previewUrl: string;
+}
+
+function readImageFromClipboard(items: DataTransferItemList): Promise<PastedImage | null> {
+  const imageItem = Array.from(items).find(item => item.type.startsWith('image/'));
+  if (!imageItem) return Promise.resolve(null);
+
+  const file = imageItem.getAsFile();
+  if (!file) return Promise.resolve(null);
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result);
+      const [, base64] = dataUrl.split(',', 2);
+      resolve({
+        base64,
+        mimeType: file.type || 'image/png',
+        filename: file.name || `pasted-image-${Date.now()}.png`,
+        previewUrl: dataUrl,
+      });
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 const SAMPLE = `Ops: Xe 51F-12345 lấy cont MSCU1234567 tại Cát Lái, cutoff 14h chiều nay nhé.
 Tài xế B: Em nhận. Đã có D/O số DO-2026-4471 chưa anh?
@@ -48,6 +80,7 @@ export function ZaloIngestCard({ onIngested }: { onIngested?: () => void }) {
   const [content, setContent] = useState('');
   const [sourceLabel, setSourceLabel] = useState('');
   const [sender, setSender] = useState('');
+  const [image, setImage] = useState<PastedImage | null>(null);
   const [preview, setPreview] = useState<ManualIngestPreview | null>(null);
   const [result, setResult] = useState<ManualIngestResult | null>(null);
   const [busy, setBusy] = useState<'preview' | 'save' | null>(null);
@@ -59,8 +92,21 @@ export function ZaloIngestCard({ onIngested }: { onIngested?: () => void }) {
     setError(null);
   }
 
+  async function handlePaste(e: ClipboardEvent<HTMLTextAreaElement>) {
+    const picked = await readImageFromClipboard(e.clipboardData.items).catch(() => null);
+    if (!picked) return;
+    e.preventDefault();
+    setImage(picked);
+    reset();
+  }
+
+  function removeImage() {
+    setImage(null);
+    reset();
+  }
+
   async function handlePreview() {
-    if (!content.trim()) return;
+    if (!content.trim() && !image) return;
     setBusy('preview'); setError(null); setResult(null);
     try {
       setPreview(await api.previewManualIngest({
@@ -68,6 +114,9 @@ export function ZaloIngestCard({ onIngested }: { onIngested?: () => void }) {
         content,
         source_label: sourceLabel || undefined,
         sender: sender || undefined,
+        image_base64: image?.base64,
+        image_mime_type: image?.mimeType,
+        image_filename: image?.filename,
       }));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Không đọc được nội dung');
@@ -82,10 +131,14 @@ export function ZaloIngestCard({ onIngested }: { onIngested?: () => void }) {
         content,
         source_label: sourceLabel || undefined,
         sender: sender || undefined,
+        image_base64: image?.base64,
+        image_mime_type: image?.mimeType,
+        image_filename: image?.filename,
       });
       setResult(saved);
       setPreview(null);
       setContent('');
+      setImage(null);
       onIngested?.();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Không lưu được');
@@ -136,8 +189,9 @@ export function ZaloIngestCard({ onIngested }: { onIngested?: () => void }) {
           className="form-input"
           value={content}
           onChange={e => { setContent(e.target.value); reset(); }}
+          onPaste={handlePaste}
           rows={5}
-          placeholder="Dán tin nhắn Zalo vào đây…"
+          placeholder="Dán tin nhắn Zalo vào đây… (dán được cả ảnh, vd. ảnh chụp POD/EIR/container)"
           style={{ resize: 'vertical', fontFamily: 'var(--font-ui)', lineHeight: 1.6 }}
         />
         <p className="form-helper">
@@ -152,13 +206,37 @@ export function ZaloIngestCard({ onIngested }: { onIngested?: () => void }) {
         </p>
       </div>
 
+      {image && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 8, background: 'var(--bg-app)', border: '1px solid var(--border-subtle)', borderRadius: 8 }}>
+          <img
+            src={image.previewUrl}
+            alt="Ảnh đã dán"
+            style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }}
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <ImageIcon size={13} /> {image.filename}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Sẽ được đọc bằng AI (vision)</div>
+          </div>
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon"
+            onClick={removeImage}
+            aria-label="Bỏ ảnh"
+          >
+            <X size={15} />
+          </button>
+        </div>
+      )}
+
       {error && <div className="banner banner-danger"><AlertTriangle size={15} /> {error}</div>}
 
       <div style={{ display: 'flex', gap: 8 }}>
         <button
           className="btn btn-secondary"
           onClick={handlePreview}
-          disabled={!content.trim() || busy !== null}
+          disabled={(!content.trim() && !image) || busy !== null}
         >
           <Search size={14} /> {busy === 'preview' ? 'Đang đọc…' : 'Xem Agentify đọc được gì'}
         </button>

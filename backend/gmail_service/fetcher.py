@@ -1,10 +1,17 @@
 import base64
+import mimetypes
 from datetime import UTC, datetime
 from email.utils import getaddresses, parsedate_to_datetime
 from typing import Any
 
 from gmail_service.config import GMAIL_QUERY
 from gmail_service.models import GmailAttachmentPayload, GmailEmailPayload
+
+# Photographed/scanned documents. HEIC/HEIF (iPhone camera default) is
+# deliberately excluded — neither the Azure Responses API nor Gemini accept it
+# directly, and converting it would need a new dependency (e.g. pillow-heif).
+_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+_IMAGE_MIME_TYPES = ("image/jpeg", "image/png", "image/webp")
 
 
 def list_new_messages(
@@ -99,7 +106,7 @@ def get_email(service: Any, msg_id: str) -> GmailEmailPayload:
     }
     attachments: list[GmailAttachmentPayload] = []
     body_text, body_html = _collect_body_parts(message["payload"])
-    _collect_pdfs(service, msg_id, message["payload"], attachments)
+    _collect_document_attachments(service, msg_id, message["payload"], attachments)
 
     return GmailEmailPayload(
         gmail_message_id=msg_id,
@@ -117,7 +124,25 @@ def get_email(service: Any, msg_id: str) -> GmailEmailPayload:
     )
 
 
-def _collect_pdfs(
+def _is_collectible_attachment(filename: str, mime_type: str) -> bool:
+    lower_name = filename.lower()
+    return (
+        lower_name.endswith(".pdf")
+        or lower_name.endswith(_IMAGE_EXTENSIONS)
+        or mime_type in _IMAGE_MIME_TYPES
+    )
+
+
+def _resolve_mime_type(filename: str, mime_type: str) -> str:
+    if mime_type and mime_type != "application/octet-stream":
+        return mime_type
+    guessed, _ = mimetypes.guess_type(filename)
+    if guessed:
+        return guessed
+    return "application/pdf" if filename.lower().endswith(".pdf") else mime_type
+
+
+def _collect_document_attachments(
     service: Any,
     msg_id: str,
     part: dict[str, Any],
@@ -125,7 +150,8 @@ def _collect_pdfs(
 ) -> None:
     filename = part.get("filename", "")
     body = part.get("body", {})
-    if filename.lower().endswith(".pdf"):
+    reported_mime_type = part.get("mimeType", "")
+    if _is_collectible_attachment(filename, reported_mime_type):
         if "attachmentId" in body:
             attachment = (
                 service.users()
@@ -143,14 +169,14 @@ def _collect_pdfs(
             GmailAttachmentPayload(
                 gmail_attachment_id=gmail_attachment_id,
                 filename=filename,
-                mime_type=part.get("mimeType", "application/pdf"),
+                mime_type=_resolve_mime_type(filename, reported_mime_type),
                 size_bytes=body.get("size"),
                 attachment_bytes=data,
             )
         )
 
     for child_part in part.get("parts", []):
-        _collect_pdfs(service, msg_id, child_part, out)
+        _collect_document_attachments(service, msg_id, child_part, out)
 
 
 def _collect_body_parts(part: dict[str, Any]) -> tuple[str | None, str | None]:

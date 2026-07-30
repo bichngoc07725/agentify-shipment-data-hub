@@ -37,14 +37,22 @@ export const SOURCE_STATE_BADGE: Record<SourceState, string> = {
 /**
  * Where a single extracted fact came from, for the provenance line under a value.
  * `source_type` is what the ingestion pipeline recorded: `pdf_text`,
- * `email_body`, `zalo_message`, `note_message`.
+ * `image_vision`, `email_body`, `zalo_message`, `note_message`.
  */
+const ATTACHMENT_SOURCE_LABELS: Record<string, string> = {
+  pdf_text: 'PDF',
+  image_vision: 'Ảnh',
+};
+
 export function factSourceLabel(fact: {
   source_type: string;
   source_label: string | null;
   attachment_id: string | null;
 }): string {
-  if (fact.attachment_id) return `PDF · ${fact.source_label ?? 'file'}`;
+  if (fact.attachment_id) {
+    const kind = ATTACHMENT_SOURCE_LABELS[fact.source_type] ?? 'File';
+    return `${kind} · ${fact.source_label ?? 'file'}`;
+  }
 
   const channel = fact.source_type.replace(/_message$/, '');
   if (channel !== fact.source_type) {
