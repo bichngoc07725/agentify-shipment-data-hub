@@ -12,12 +12,6 @@ export const SEVERITY_BADGE: Record<ExceptionSeverity, string> = {
   info: 'badge-neutral',
 };
 
-export const SEVERITY_BANNER: Record<ExceptionSeverity, string> = {
-  critical: 'banner-danger',
-  warning: 'banner-warning',
-  info: 'banner-info',
-};
-
 export const DOCUMENT_LABELS: Record<string, string> = {
   arrival_notice: 'Arrival Notice',
   booking_confirmation: 'Booking Confirmation',

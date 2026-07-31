@@ -218,6 +218,15 @@ class ManualIngestResponse(BaseModel):
     extraction_status: str
 
 
+class ContainerShipmentSummary(BaseModel):
+    id: UUID
+    stage: Literal[
+        "rfq", "booking", "documents", "customs", "delivery", "reconciliation", "closed"
+    ]
+    sla_breached: bool
+    sla_due_at: datetime | None
+
+
 class ContainerListItem(BaseModel):
     id: UUID
     container_no: str
@@ -237,6 +246,7 @@ class ContainerListItem(BaseModel):
     source_count: int
     attachment_count: int
     updated_at: datetime | None
+    shipment: ContainerShipmentSummary | None = None
 
 
 class ContainerListResponse(BaseModel):
@@ -257,7 +267,8 @@ class RelatedEmailSummary(BaseModel):
 class RelatedAttachmentSummary(BaseModel):
     id: UUID
     filename: str
-    email_id: UUID
+    # Null for a field photo (container/seal/EIR/POD) — it has no email behind it.
+    email_id: UUID | None
     document_type: str | None
     file_url: str | None = None
 
@@ -307,12 +318,17 @@ class ContainerFactResponse(BaseModel):
     document_type: str | None
     confidence: Decimal | None
     source_sent_at: datetime | None
-    email_id: UUID
+    # Null for a fact sourced from a field photo — see `RelatedAttachmentSummary`.
+    email_id: UUID | None
     attachment_id: UUID | None
 
 
 class ContainerFactsListResponse(BaseModel):
     items: list[ContainerFactResponse]
+
+
+class EditContainerFactRequest(BaseModel):
+    field_value: str = Field(min_length=1)
 
 
 class EmailDetailResponse(BaseModel):
@@ -344,3 +360,425 @@ class EmailListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ExceptionActionRequest(BaseModel):
+    note: str | None = None
+
+
+class ExceptionActionResponse(BaseModel):
+    container_no: str
+    code: str
+    action: str
+    severity_tier: str
+    acted_by_username: str
+    acted_by_role: str
+    note: str | None = None
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: UUID
+    username: str
+    display_name: str
+    role: str
+
+
+class QuoteChargeRequest(BaseModel):
+    charge_group: Literal["ocean_freight", "surcharge", "local"]
+    charge_code: str
+    description: str | None = None
+    unit_price: Decimal
+    currency: str = "USD"
+    quantity: Decimal = Decimal("1")
+
+
+class QuoteChargeResponse(BaseModel):
+    id: UUID
+    charge_group: str
+    charge_code: str
+    description: str | None
+    unit_price: Decimal
+    currency: str
+    quantity: Decimal
+    amount: Decimal
+
+
+class QuoteCreateRequest(BaseModel):
+    customer_name: str
+    status: Literal["draft", "sent", "accepted", "rejected", "expired"] = "draft"
+    pol: str | None = None
+    pod: str | None = None
+    commodity: str | None = None
+    is_dangerous: bool = False
+    is_reefer: bool = False
+    container_type: str | None = None
+    container_qty: int | None = None
+    gross_weight_kg: Decimal | None = None
+    cargo_ready_date: date | None = None
+    incoterm: str | None = None
+    payment_term: str | None = None
+    transit_time: str | None = None
+    valid_until: date | None = None
+    note: str | None = None
+    currency: str = "USD"
+    container_no: str | None = None
+    charges: list[QuoteChargeRequest] = Field(default_factory=list)
+
+
+class QuoteUpdateRequest(QuoteCreateRequest):
+    pass
+
+
+class QuoteResponse(BaseModel):
+    id: UUID
+    quote_no: str
+    customer_name: str
+    status: str
+    pol: str | None
+    pod: str | None
+    commodity: str | None
+    is_dangerous: bool
+    is_reefer: bool
+    container_type: str | None
+    container_qty: int | None
+    gross_weight_kg: Decimal | None
+    cargo_ready_date: date | None
+    incoterm: str | None
+    payment_term: str | None
+    transit_time: str | None
+    valid_until: date | None
+    note: str | None
+    currency: str
+    created_by: UUID
+    container_id: UUID | None
+    container_no: str | None = None
+    charges: list[QuoteChargeResponse]
+    total_amount: Decimal
+    created_at: datetime
+    updated_at: datetime | None
+
+
+class QuoteListResponse(BaseModel):
+    items: list[QuoteResponse]
+    total: int
+
+
+class FieldImagePreviewResponse(BaseModel):
+    image_id: UUID
+    filename: str
+    mime_type: str
+    file_url: str | None
+    doc_kind: str | None
+    container_no: str | None
+    container_no_valid: bool
+    matched_container: str | None
+    seal_no: str | None
+    license_plate: str | None
+    depot: str | None
+    datetime_text: str | None
+    raw_text: str | None
+    confidence: float | None
+    extraction_status: Literal["ok", "skipped", "failed"]
+    extraction_error: str | None
+
+
+class FieldImageConfirmRequest(BaseModel):
+    image_id: UUID
+    container_no: str = Field(min_length=1)
+    seal_no: str | None = None
+    doc_kind: str | None = None
+
+
+class FieldImageConfirmResponse(BaseModel):
+    attachment_id: UUID
+    container_no: str
+    fact_count: int
+
+
+class FieldImageListItem(BaseModel):
+    id: UUID
+    filename: str
+    mime_type: str
+    document_type: str | None
+    file_url: str | None
+    extracted_record: dict[str, Any] | None
+    created_at: datetime
+
+
+class FieldImageListResponse(BaseModel):
+    items: list[FieldImageListItem]
+
+
+class DebitNoteChargeRequest(BaseModel):
+    charge_code: str
+    description: str | None = None
+    amount: Decimal
+    currency: str = "USD"
+    quantity: Decimal = Decimal("1")
+
+
+class DebitNoteChargeResponse(BaseModel):
+    id: UUID
+    charge_code: str
+    description: str | None
+    amount: Decimal
+    currency: str
+    quantity: Decimal
+
+
+class DebitNoteCreateRequest(BaseModel):
+    container_no: str = Field(min_length=1)
+    partner_name: str | None = None
+    doc_no: str | None = None
+    currency: str = "USD"
+    issued_date: date | None = None
+    source_attachment_id: UUID | None = None
+    charges: list[DebitNoteChargeRequest] = Field(default_factory=list)
+
+
+class DebitNoteResponse(BaseModel):
+    id: UUID
+    container_id: UUID
+    container_no: str | None = None
+    source_attachment_id: UUID | None
+    partner_name: str | None
+    doc_no: str | None
+    currency: str
+    issued_date: date | None
+    created_by: UUID
+    charges: list[DebitNoteChargeResponse]
+    total_amount: Decimal
+    created_at: datetime
+
+
+class DebitNoteListResponse(BaseModel):
+    items: list[DebitNoteResponse]
+    total: int
+
+
+class ReconciliationCreateRequest(BaseModel):
+    container_no: str = Field(min_length=1)
+    quote_id: UUID
+
+
+class ReconciliationApproveRequest(BaseModel):
+    note: str | None = None
+
+
+class ReconciliationLineResponse(BaseModel):
+    id: UUID
+    charge_code: str
+    quoted_amount: Decimal | None
+    actual_amount: Decimal | None
+    variance: Decimal
+    match_status: Literal["matched", "variance", "missing_actual", "extra_actual"]
+    note: str | None
+
+
+class ReconciliationResponse(BaseModel):
+    id: UUID
+    container_id: UUID
+    container_no: str | None = None
+    quote_id: UUID
+    quote_no: str | None = None
+    status: Literal["draft", "reviewed", "approved", "escalated"]
+    total_quoted: Decimal
+    total_actual: Decimal
+    total_variance: Decimal
+    needs_approval: bool
+    created_by: UUID
+    approved_by: UUID | None
+    lines: list[ReconciliationLineResponse]
+    created_at: datetime
+
+
+class ReconciliationListResponse(BaseModel):
+    items: list[ReconciliationResponse]
+    total: int
+
+
+class CustomsChannelHistoryResponse(BaseModel):
+    id: UUID
+    from_channel: Literal["green", "yellow", "red"] | None
+    to_channel: Literal["green", "yellow", "red"]
+    changed_at: datetime
+    changed_by: UUID
+    reason: str | None
+
+
+class CustomsDeclarationCreateRequest(BaseModel):
+    container_no: str = Field(min_length=1)
+    declaration_no: str | None = None
+    declaration_type: Literal["import", "export"] = "import"
+    channel: Literal["green", "yellow", "red"] | None = None
+    hs_code: str | None = None
+    registered_at: datetime | None = None
+    cleared_at: datetime | None = None
+    tax_amount: Decimal | None = None
+    note: str | None = None
+
+
+class CustomsDeclarationUpdateRequest(BaseModel):
+    declaration_no: str | None = None
+    declaration_type: Literal["import", "export"] = "import"
+    channel: Literal["green", "yellow", "red"] | None = None
+    hs_code: str | None = None
+    registered_at: datetime | None = None
+    cleared_at: datetime | None = None
+    tax_amount: Decimal | None = None
+    note: str | None = None
+    channel_change_reason: str | None = None
+
+
+class CustomsDeclarationResponse(BaseModel):
+    id: UUID
+    container_id: UUID
+    container_no: str | None = None
+    declaration_no: str | None
+    declaration_type: Literal["import", "export"]
+    channel: Literal["green", "yellow", "red"] | None
+    hs_code: str | None
+    registered_at: datetime | None
+    cleared_at: datetime | None
+    tax_amount: Decimal | None
+    note: str | None
+    created_by: UUID
+    channel_history: list[CustomsChannelHistoryResponse]
+    created_at: datetime
+    updated_at: datetime | None
+
+
+class CustomsDeclarationListResponse(BaseModel):
+    items: list[CustomsDeclarationResponse]
+    total: int
+
+
+class ShipmentCreateRequest(BaseModel):
+    customer_name: str | None = None
+    direction: Literal["import", "export"] | None = None
+    quote_id: UUID | None = None
+    container_nos: list[str] = Field(default_factory=list)
+
+
+class ShipmentAdvanceRequest(BaseModel):
+    pass
+
+
+class ShipmentMoveStageRequest(BaseModel):
+    """Target column for a Kanban drag. Spelled out as a Literal like the rest
+    of this module (which stays free of `db.models` imports), so an unknown
+    stage is a 422 rather than a silently ignored write."""
+
+    stage: Literal[
+        "rfq", "booking", "documents", "customs", "delivery", "reconciliation", "closed"
+    ]
+
+
+class ShipmentResponse(BaseModel):
+    id: UUID
+    shipment_no: str
+    customer_name: str | None
+    direction: Literal["import", "export"] | None
+    stage: Literal[
+        "rfq", "booking", "documents", "customs", "delivery", "reconciliation", "closed"
+    ]
+    quote_id: UUID | None
+    quote_no: str | None = None
+    owner_role: str | None
+    sla_due_at: datetime | None
+    sla_breached: bool
+    container_count: int
+    container_nos: list[str]
+    created_at: datetime
+    updated_at: datetime | None
+
+
+class ShipmentBoardColumn(BaseModel):
+    stage: Literal[
+        "rfq", "booking", "documents", "customs", "delivery", "reconciliation", "closed"
+    ]
+    jobs: list[ShipmentResponse]
+
+
+class ShipmentBoardResponse(BaseModel):
+    columns: list[ShipmentBoardColumn]
+
+
+class ShipmentListResponse(BaseModel):
+    items: list[ShipmentResponse]
+    total: int
+
+
+class AuditLogResponse(BaseModel):
+    id: UUID
+    user_id: UUID
+    username: str | None = None
+    role_used: str
+    action: str
+    resource_type: str
+    resource_id: UUID | None
+    detail: dict[str, Any] | None
+    created_at: datetime
+
+
+class AuditLogListResponse(BaseModel):
+    items: list[AuditLogResponse]
+    total: int
+
+
+UserRoleLiteral = Literal[
+    "admin", "manager", "sales_cs", "docs", "ops", "accountant", "driver"
+]
+
+
+class UserCreateRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=100)
+    display_name: str = Field(min_length=1, max_length=255)
+    role: UserRoleLiteral
+    password: str = Field(min_length=6)
+
+
+class UserUpdateRequest(BaseModel):
+    role: UserRoleLiteral | None = None
+    is_active: bool | None = None
+    password: str | None = Field(default=None, min_length=6)
+
+
+class UserResponse(BaseModel):
+    id: UUID
+    username: str
+    display_name: str
+    role: UserRoleLiteral
+    is_active: bool
+    created_at: datetime
+
+
+class UserListResponse(BaseModel):
+    items: list[UserResponse]
+    total: int
+
+
+class PermissionMatrixResponse(BaseModel):
+    matrix: dict[str, dict[str, list[str]]]
+
+
+class ExtractionCapability(BaseModel):
+    ready: bool
+    provider: str | None
+    reason: str | None
+    fallback: str
+
+
+class ExtractionStatusResponse(BaseModel):
+    provider_setting: str
+    text_extraction: ExtractionCapability
+    image_ocr: ExtractionCapability
+    missing_keys: list[str]
+    gemini_model: str | None

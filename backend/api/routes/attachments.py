@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.deps.permissions import CurrentUser, require_permission
 from db.database import get_db
 from db.models import Attachment
 
@@ -38,6 +39,9 @@ def _resolve_storage_path(storage_path: str) -> Path:
 async def get_attachment_file(
     attachment_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _current_user: CurrentUser = Depends(
+        require_permission("shipping_document", "view")
+    ),
 ) -> FileResponse:
     attachment = await db.get(Attachment, attachment_id)
     if attachment is None:

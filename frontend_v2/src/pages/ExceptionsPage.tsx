@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ShieldCheck, ChevronRight, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ShieldCheck, ChevronRight, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { api } from '../lib/api';
+import { useAuth } from '../lib/auth';
+import { canApproveException, canResolveException } from '../lib/permissions';
 import type { ShipmentException, ShipmentExceptionListResponse, ExceptionSeverity } from '../types/api';
 import { fmtDate } from '../lib/format';
 import { SEVERITY_BADGE, SEVERITY_LABELS, formatDaysRemaining } from '../lib/exceptions';
@@ -36,7 +38,7 @@ export function ExceptionsPage() {
   const displayed = active?.severity ? items.filter(i => i.severity === active.severity) : items;
 
   return (
-    <div style={{ maxWidth: 960, margin: '0 auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="page-container">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)' }}>Ngoại lệ cần xử lý</h1>
@@ -111,7 +113,7 @@ export function ExceptionsPage() {
       {!loading && displayed.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {displayed.map((exception, index) => (
-            <ExceptionCard key={`${exception.container_no}-${exception.code}-${index}`} exception={exception} />
+            <ExceptionCard key={`${exception.container_no}-${exception.code}-${index}`} exception={exception} onActed={load} />
           ))}
         </div>
       )}
@@ -119,8 +121,42 @@ export function ExceptionsPage() {
   );
 }
 
-export function ExceptionCard({ exception }: { exception: ShipmentException }) {
+/** `onActed` refetches the owning list. The backend drops an actioned
+ * exception from the worklist (see `exception_service.load_exception_suppressions`),
+ * so re-reading is what makes the card disappear — without it the card would
+ * only *look* handled until the next page load. */
+export function ExceptionCard({
+  exception,
+  onActed,
+}: {
+  exception: ShipmentException;
+  onActed?: () => void;
+}) {
+  const { user } = useAuth();
   const countdown = formatDaysRemaining(exception.days_remaining);
+
+  const [busy, setBusy] = useState<'resolve' | 'approve' | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actedNote, setActedNote] = useState<string | null>(null);
+
+  const canResolve = canResolveException(user?.role, exception.severity);
+  const canApprove = canApproveException(user?.role, exception.severity);
+
+  async function act(action: 'resolve' | 'approve') {
+    setBusy(action);
+    setActionError(null);
+    try {
+      const fn = action === 'resolve' ? api.resolveException : api.approveException;
+      const result = await fn(exception.container_no, exception.code);
+      const verb = action === 'resolve' ? 'Đã xử lý' : 'Đã duyệt';
+      setActedNote(`${verb} bởi ${result.acted_by_username} (${result.acted_by_role}) lúc ${new Date().toLocaleString('vi-VN')}`);
+      onActed?.();
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Không thực hiện được thao tác này');
+    } finally {
+      setBusy(null);
+    }
+  }
 
   return (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -167,6 +203,40 @@ export function ExceptionCard({ exception }: { exception: ShipmentException }) {
               Hạn: {fmtDate(exception.due_date)}
             </span>
           )}
+        </div>
+      )}
+
+      {(canResolve || canApprove) && !actedNote && (
+        <div style={{ display: 'flex', gap: 8, paddingTop: 4, borderTop: '1px solid var(--border-subtle)' }}>
+          {canResolve && (
+            <button
+              className="btn btn-secondary btn-sm"
+              disabled={busy !== null}
+              onClick={() => act('resolve')}
+            >
+              {busy === 'resolve' ? 'Đang xử lý…' : 'Đánh dấu đã xử lý'}
+            </button>
+          )}
+          {canApprove && (
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={busy !== null}
+              onClick={() => act('approve')}
+            >
+              {busy === 'approve' ? 'Đang duyệt…' : 'Duyệt'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {actedNote && (
+        <div className="banner banner-info" style={{ fontSize: 12 }}>
+          <CheckCircle2 size={14} style={{ flexShrink: 0 }} /> {actedNote}
+        </div>
+      )}
+      {actionError && (
+        <div className="banner banner-danger" style={{ fontSize: 12 }}>
+          <AlertTriangle size={14} style={{ flexShrink: 0 }} /> {actionError}
         </div>
       )}
     </div>

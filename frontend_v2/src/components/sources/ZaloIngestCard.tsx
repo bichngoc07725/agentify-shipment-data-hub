@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import type { ClipboardEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle, Image as ImageIcon, Search, Send, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Image as ImageIcon, Lock, Search, Send, X } from 'lucide-react';
 import { api } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
+import { canCreateManualIngest, ROLE_LABELS } from '../../lib/permissions';
 import type { ManualIngestPreview, ManualIngestResult } from '../../types/api';
 
 interface PastedImage {
@@ -77,6 +79,8 @@ function readableFields(preview: ManualIngestPreview): [string, string][] {
 }
 
 export function ZaloIngestCard({ onIngested }: { onIngested?: () => void }) {
+  const { user } = useAuth();
+  const canSave = canCreateManualIngest(user?.role);
   const [content, setContent] = useState('');
   const [sourceLabel, setSourceLabel] = useState('');
   const [sender, setSender] = useState('');
@@ -240,12 +244,19 @@ export function ZaloIngestCard({ onIngested }: { onIngested?: () => void }) {
         >
           <Search size={14} /> {busy === 'preview' ? 'Đang đọc…' : 'Xem Agentify đọc được gì'}
         </button>
-        {preview && (
+        {preview && canSave && (
           <button className="btn btn-primary" onClick={handleSave} disabled={busy !== null}>
             <Send size={14} /> {busy === 'save' ? 'Đang lưu…' : 'Xác nhận lưu vào hồ sơ'}
           </button>
         )}
       </div>
+
+      {preview && !canSave && (
+        <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+          <Lock size={13} style={{ flexShrink: 0 }} />
+          Vai trò "{user ? ROLE_LABELS[user.role] : ''}" chỉ được xem trước, không được lưu vào hồ sơ. Cần vai trò Vận hành hoặc Chứng từ.
+        </p>
+      )}
 
       {preview && (
         <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -318,6 +329,7 @@ export function ZaloIngestCard({ onIngested }: { onIngested?: () => void }) {
           </div>
         </div>
       )}
+
     </div>
   );
 }

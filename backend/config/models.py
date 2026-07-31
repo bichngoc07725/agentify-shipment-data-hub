@@ -22,9 +22,23 @@ class APIKeyConfig(BaseModel):
     value: str
 
 
+class JWTConfig(BaseModel):
+    """Signs user-facing login tokens. Reuses `SECRET_KEY`, kept separate from
+    the internal API key used by ingestion jobs."""
+
+    secret_key: str = ""
+    algorithm: str = "HS256"
+    expire_minutes: int = 480
+
+    _blank_placeholders = field_validator(
+        "secret_key", "algorithm", mode="before"
+    )(lambda value: blank_if_unexpanded(value) if isinstance(value, str) else value)
+
+
 class AuthenticationConfig(BaseModel):
     api_key: APIKeyConfig
     cors: CORSConfig
+    jwt: JWTConfig = Field(default_factory=JWTConfig)
 
 
 class DatabasePoolConfig(BaseModel):
@@ -86,7 +100,16 @@ class ExtractionConfig(BaseModel):
 
     provider: str = "auto"
     api_key: str = ""
-    model: str = "gemini-2.0-flash"
+    # `gemini-2.0-flash` (default cũ) đã bị Google tắt 1/6/2026. Giá trị hiện
+    # tại lấy theo ví dụ trong tài liệu chính thức
+    # https://ai.google.dev/gemini-api/docs/get-started
+    # Đây chỉ là dự phòng khi GEMINI_MODEL không được đặt — luôn ưu tiên khai
+    # báo tường minh trong .env.
+    model: str = "gemini-3.6-flash"
+    # Không có timeout thì một lần Gemini treo sẽ làm đứng luôn worker ingestion,
+    # và `extract_fields` KHÔNG cứu được: nó bắt exception, còn treo thì không
+    # sinh exception nào để bắt. SDK google-genai mặc định `timeout=None`.
+    timeout_seconds: int = 60
     azure: AzureOpenAIConfig = Field(default_factory=AzureOpenAIConfig)
 
     _blank_placeholders = field_validator(
@@ -101,7 +124,6 @@ class ExtractionConfig(BaseModel):
 
 class GmailServiceConfig(BaseModel):
     query: str = "has:attachment newer_than:7d"
-    state_file: str = "processed.json"
     oauth: GmailOAuthConfig = Field(default_factory=GmailOAuthConfig)
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
 

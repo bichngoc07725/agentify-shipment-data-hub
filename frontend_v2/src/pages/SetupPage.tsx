@@ -1,16 +1,26 @@
 import { useState, useEffect, useRef } from 'react';
-import { AlertTriangle, CheckCircle, RefreshCw, Mail } from 'lucide-react';
+import { AlertTriangle, CheckCircle, RefreshCw, Mail, ShieldAlert } from 'lucide-react';
 import { api } from '../lib/api';
-import type { GmailConnection, SyncJob } from '../types/api';
+import { useAuth } from '../lib/auth';
+import { canAccessSystemConfig } from '../lib/permissions';
+import type { ExtractionCapabilityStatus, GmailConnection, SyncJob } from '../types/api';
 import { fmtDateTime, fmtRelative, syncStatusLabel } from '../lib/format';
 import { SOURCES, SOURCE_STATE_BADGE, SOURCE_STATE_LABELS } from '../lib/channels';
 import { ZaloIngestCard } from '../components/sources/ZaloIngestCard';
 import { Link } from 'react-router-dom';
 
 export function SetupPage() {
+  const { user } = useAuth();
+  // Gmail connection management is `system_config` (Admin/Manager only) —
+  // same rule the backend enforces on `/api/v1/gmail-connections`. The Zalo
+  // card below is a separate resource (`manual_ingest`) with its own gate,
+  // so it stays visible to everyone who can reach this page.
+  const canManageGmail = canAccessSystemConfig(user?.role);
+  const [ocrStatus, setOcrStatus] = useState<ExtractionCapabilityStatus | null>(null);
+
   const [connections, setConnections] = useState<GmailConnection[]>([]);
   const [jobs, setJobs] = useState<SyncJob[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(canManageGmail);
   const [error, setError] = useState<string | null>(null);
   const [oauthLoading, setOauthLoading] = useState(false);
   const [disconnecting, setDisconnecting] = useState<'logout' | 'switch' | null>(null);
@@ -18,6 +28,9 @@ export function SetupPage() {
   // Sync form state
   const [syncQuery, setSyncQuery] = useState('newer_than:30d');
   const [syncMax, setSyncMax] = useState(100);
+  // Which connected mailbox the next sync runs against; defaults to the first
+  // one loaded (see the effect that fetches connections).
+  const [syncConnectionId, setSyncConnectionId] = useState<string | null>(null);
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [activeJob, setActiveJob] = useState<SyncJob | null>(null);
@@ -31,6 +44,7 @@ export function SetupPage() {
         api.listSyncJobs({ page_size: 10 }),
       ]);
       setConnections(conns);
+      setSyncConnectionId(prev => prev ?? conns[0]?.id ?? null);
       setJobs(jobsRes.items);
       const running = jobsRes.items.find(j => j.status === 'running' || j.status === 'pending');
       if (running) setActiveJob(running);
@@ -40,9 +54,16 @@ export function SetupPage() {
   }
 
   useEffect(() => {
+    // Skip the Gmail calls entirely for roles that can't reach them — the
+    // backend would 403 anyway, and this avoids a confusing error banner
+    // when all a Docs/Ops user wants is the Zalo card below.
+    if (!canManageGmail) return;
     load();
+    // Trạng thái trích xuất là phụ trợ: lỗi ở đây không được làm hỏng trang,
+    // nên nuốt lỗi và coi như "chưa rõ" (không hiện cảnh báo).
+    api.getExtractionStatus().then(setOcrStatus).catch(() => setOcrStatus(null));
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, []);
+  }, [canManageGmail]);
 
   // Poll active job
   useEffect(() => {
@@ -56,6 +77,9 @@ export function SetupPage() {
             setActiveJob(updated);
             if (updated.status !== 'running' && updated.status !== 'pending') {
               if (pollRef.current) clearInterval(pollRef.current);
+              // Refresh the mailbox card so "Last sync" reflects the run
+              // that just finished instead of the previous one.
+              api.gmailConnections().then(setConnections).catch(() => {});
             }
           }
         } catch {}
@@ -100,7 +124,10 @@ export function SetupPage() {
   }
 
   async function handleStartSync() {
-    const conn = connections[0];
+    // Whichever mailbox the user picked. This used to hard-code
+    // `connections[0]`, so with more than one account connected the sync
+    // silently ran against the wrong inbox.
+    const conn = connections.find(c => c.id === syncConnectionId) ?? connections[0];
     if (!conn) return;
     setSyncLoading(true); setSyncError(null);
     try {
@@ -120,7 +147,7 @@ export function SetupPage() {
   const mainConn = connections[0];
 
   return (
-    <div style={{ maxWidth: 780, margin: '0 auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 28 }}>
+    <div className="page-container page-narrow" style={{ gap: 28 }}>
       <div>
         <h1 style={{ fontSize: 20, fontWeight: 600 }}>Nguồn dữ liệu</h1>
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.6 }}>
@@ -129,22 +156,63 @@ export function SetupPage() {
         </p>
       </div>
 
-      <div id="gmail">
+      <SourceOverview />
+
+      {/* Người sửa được cấu hình là Admin/Manager, nhưng họ KHÔNG upload ảnh
+          (quyền đó là ops/driver), nên cảnh báo đặt trong khu upload ảnh sẽ
+          không bao giờ đến mắt họ. Vì vậy trạng thái trích xuất phải xuất hiện
+          ở đây — kèm đúng tên biến môi trường còn thiếu để hành động được ngay. */}
+      {canManageGmail && ocrStatus && !ocrStatus.image_ocr.ready && (
+        <div className="banner banner-warning" style={{ alignItems: 'flex-start' }}>
+          <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ lineHeight: 1.6 }}>
+            <strong>Đọc ảnh tự động (OCR) đang TẮT.</strong>{' '}
+            Nhân viên vẫn upload được ảnh hiện trường, nhưng mọi trường trả về rỗng
+            và phải nhập tay — nhìn giống hệt “AI đọc không ra”.
+            {ocrStatus.image_ocr.reason && (
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                Lý do: {ocrStatus.image_ocr.reason}
+              </div>
+            )}
+            {ocrStatus.missing_keys.length > 0 && (
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                Cần đặt trong <span className="mono">backend/.env</span>:{' '}
+                <span className="mono">{ocrStatus.missing_keys.join(', ')}</span>
+              </div>
+            )}
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+              Trích xuất văn bản (email/PDF):{' '}
+              {ocrStatus.text_extraction.ready
+                ? `đang chạy (${ocrStatus.text_extraction.provider})`
+                : `cũng đang tắt — ${ocrStatus.text_extraction.fallback.toLowerCase()}`}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!canManageGmail && (
+        <div className="banner banner-info">
+          <ShieldAlert size={15} style={{ flexShrink: 0 }} />
+          Quản lý kết nối Gmail chỉ dành cho Admin/Manager. Vai trò của bạn chỉ thấy được phần Zalo bên dưới.
+        </div>
+      )}
+
+      {canManageGmail && <div id="gmail">
         <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           📧 Gmail
           <span className="badge badge-success">Đang chạy</span>
         </h2>
-      </div>
+      </div>}
 
-      {loading && (
+      {canManageGmail && loading && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {[...Array(2)].map((_, i) => <div key={i} className="skeleton" style={{ height: 80, borderRadius: 10 }} />)}
         </div>
       )}
 
-      {error && <div className="banner banner-danger"><AlertTriangle size={16} /> {error}</div>}
+      {canManageGmail && error && <div className="banner banner-danger"><AlertTriangle size={16} /> {error}</div>}
 
-      {!loading && !mainConn ? (
+      {canManageGmail && (!loading && !mainConn ? (
         /* Not connected */
         <div className="connection-panel">
           <div className="gmail-logo">📧</div>
@@ -168,29 +236,37 @@ export function SetupPage() {
         </div>
       ) : mainConn && (
         <>
-          {/* Connection row */}
-          <div className="card">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <div style={{
-                width: 40, height: 40, borderRadius: '50%',
-                background: 'var(--accent-soft)', color: 'var(--accent)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontWeight: 700, fontSize: 16, flexShrink: 0
-              }}>
-                {mainConn.account_email[0].toUpperCase()}
-              </div>
-              <div style={{ flex: 1, minWidth: 160 }}>
-                <div style={{ fontWeight: 500 }}>{mainConn.account_email}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                  Read-only · Last sync: {fmtRelative(mainConn.last_synced_at)}
+          {/* Every connected mailbox, not just the first. Showing only
+              `connections[0]` hid any additional account and — together with
+              the "Connect Gmail" panel rendering only when there are zero
+              connections — left no way at all to link a second mailbox. */}
+          {connections.map(conn => (
+            <div className="card" key={conn.id}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: '50%',
+                  background: 'var(--accent-soft)', color: 'var(--accent)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 700, fontSize: 16, flexShrink: 0
+                }}>
+                  {conn.account_email[0].toUpperCase()}
                 </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 500 }}>{conn.account_email}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                    Read-only · Last sync: {fmtRelative(conn.last_synced_at)}
+                  </div>
+                </div>
+                <span className="badge badge-success"><CheckCircle size={11} style={{ marginRight: 4 }} /> Connected</span>
               </div>
-              <span className="badge badge-success"><CheckCircle size={11} style={{ marginRight: 4 }} /> Connected</span>
-              <div style={{ display: 'flex', gap: 8 }}>
+              {/* Thao tác gắn với `conn` của vòng lặp, không phải `mainConn` —
+                  nếu không thì có nhiều hộp thư, mọi nút đều tác động lên
+                  đúng tài khoản đầu tiên. */}
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
-                  onClick={() => handleSwitchAccount(mainConn.id)}
+                  onClick={() => handleSwitchAccount(conn.id)}
                   disabled={disconnecting !== null}
                 >
                   {disconnecting === 'switch' ? 'Đang chuyển…' : 'Dùng email khác'}
@@ -198,14 +274,24 @@ export function SetupPage() {
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
-                  onClick={() => handleLogout(mainConn.id)}
+                  onClick={() => handleLogout(conn.id)}
                   disabled={disconnecting !== null}
                 >
                   {disconnecting === 'logout' ? 'Đang thoát…' : 'Thoát tài khoản'}
                 </button>
               </div>
             </div>
-          </div>
+          ))}
+
+          <button
+            className="btn btn-secondary"
+            onClick={handleConnectGmail}
+            disabled={oauthLoading}
+            style={{ alignSelf: 'flex-start' }}
+          >
+            <Mail size={15} />
+            {oauthLoading ? 'Đang chuyển hướng…' : 'Kết nối thêm tài khoản Gmail'}
+          </button>
 
           {/* Active sync progress */}
           {activeJob && (activeJob.status === 'running' || activeJob.status === 'pending') && (
@@ -231,7 +317,16 @@ export function SetupPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div className="form-group">
                 <label className="form-label" htmlFor="sync-mailbox">Mailbox</label>
-                <input id="sync-mailbox" className="form-input" value={mainConn.account_email} disabled />
+                <select
+                  id="sync-mailbox"
+                  className="form-input"
+                  value={syncConnectionId ?? mainConn.id}
+                  onChange={e => setSyncConnectionId(e.target.value)}
+                >
+                  {connections.map(conn => (
+                    <option key={conn.id} value={conn.id}>{conn.account_email}</option>
+                  ))}
+                </select>
               </div>
               <div className="form-group">
                 <label className="form-label" htmlFor="sync-query">Gmail query</label>
@@ -315,7 +410,7 @@ export function SetupPage() {
             <RecentEmailsMini />
           </div>
         </>
-      )}
+      ))}
 
       {/* Zalo — manual, reviewed ingest */}
       <div id="zalo" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 24 }}>
@@ -328,7 +423,7 @@ export function SetupPage() {
           tự động — việc đó cần quyền truy cập toàn bộ hội thoại cá nhân mà sản phẩm không
           nên xin. Bạn quyết định tin nào vào hồ sơ.
         </p>
-        <ZaloIngestCard onIngested={load} />
+        <ZaloIngestCard onIngested={canManageGmail ? load : undefined} />
       </div>
 
       {/* Sources still ahead */}
@@ -349,6 +444,31 @@ export function SetupPage() {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function SourceOverview() {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+      {SOURCES.map(source => (
+        <div
+          key={source.id}
+          className="card"
+          style={{ padding: 14, opacity: source.state === 'out_of_scope' ? 0.7 : 1 }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 16 }}>{source.icon}</span>
+            <strong style={{ fontSize: 13 }}>{source.name}</strong>
+          </div>
+          <span className={`badge ${SOURCE_STATE_BADGE[source.state]}`}>
+            {SOURCE_STATE_LABELS[source.state]}
+          </span>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8, lineHeight: 1.5 }}>
+            {source.summary}
+          </p>
+        </div>
+      ))}
     </div>
   );
 }

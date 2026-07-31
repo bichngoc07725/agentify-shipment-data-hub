@@ -9,6 +9,10 @@ authentication:
     # Single-quoted: the value is a regex, and YAML would treat `\.` inside
     # double quotes as an unknown escape sequence and fail to parse.
     allow_origins_regex: '${ALLOW_ORIGINS_REGEX}'
+  jwt:
+    secret_key: "${SECRET_KEY}"
+    algorithm: "HS256"
+    expire_minutes: 480
 
 databases:
   postgres:
@@ -28,7 +32,6 @@ app:
 
 gmail_service:
   query: "${GMAIL_QUERY}"
-  state_file: "${GMAIL_STATE_FILE}"
   oauth:
     credentials_file: "${GMAIL_CREDENTIALS_FILE}"
     redirect_uri: "${GMAIL_REDIRECT_URI}"

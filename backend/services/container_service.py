@@ -1,15 +1,18 @@
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from db.models import Attachment, Container, ContainerFact, Email
+from services.aggregation_service import refresh_container_summary
 
 
 async def list_containers(
     db: AsyncSession, q: str | None, page: int, page_size: int
 ) -> tuple[list[Container], int]:
-    stmt = select(Container)
+    stmt = select(Container).options(selectinload(Container.shipment))
     count_stmt = select(func.count(Container.id))
     if q:
         search = f"%{q.strip()}%"
@@ -50,7 +53,9 @@ async def get_recent_containers(db: AsyncSession, limit: int = 6) -> list[Contai
 
 async def get_container_by_no(db: AsyncSession, container_no: str) -> Container | None:
     result = await db.execute(
-        select(Container).where(Container.container_no == container_no.upper())
+        select(Container)
+        .where(Container.container_no == container_no.upper())
+        .options(selectinload(Container.shipment))
     )
     return result.scalar_one_or_none()
 
@@ -93,6 +98,38 @@ async def get_container_facts(db: AsyncSession, container_id: UUID) -> list[Cont
         .order_by(ContainerFact.source_sent_at.desc(), ContainerFact.created_at.desc())
     )
     return list(result.scalars().all())
+
+
+async def get_container_fact_by_id(
+    db: AsyncSession, container_id: UUID, fact_id: UUID
+) -> ContainerFact | None:
+    result = await db.execute(
+        select(ContainerFact).where(
+            and_(ContainerFact.id == fact_id, ContainerFact.container_id == container_id)
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def update_container_fact(
+    db: AsyncSession, fact: ContainerFact, field_value: str, edited_by_username: str
+) -> ContainerFact:
+    """Overwrite a fact's value with a manual correction.
+
+    Kept as an edit to the existing row (not a new fact) so the field's
+    history stays a single timeline; `source_sent_at` is bumped to now so
+    `refresh_container_summary` picks this as the latest value for the field.
+    """
+
+    fact.field_value = field_value
+    fact.normalized_value = field_value
+    fact.source_type = "manual_edit"
+    fact.source_label = f"Sửa tay bởi {edited_by_username}"
+    fact.source_sent_at = datetime.now(UTC)
+    await db.flush()
+    await refresh_container_summary(db, fact.container_id)
+    await db.refresh(fact)
+    return fact
 
 
 async def get_email_detail(db: AsyncSession, email_id: UUID):

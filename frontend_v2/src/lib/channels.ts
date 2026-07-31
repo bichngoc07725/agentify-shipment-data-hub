@@ -41,7 +41,10 @@ export const SOURCE_STATE_BADGE: Record<SourceState, string> = {
  */
 const ATTACHMENT_SOURCE_LABELS: Record<string, string> = {
   pdf_text: 'PDF',
+  // `image_vision` đến từ OCR ảnh đính kèm Gmail, `image` từ ảnh hiện trường
+  // người dùng tự upload — hai luồng khác nhau nhưng hiển thị như nhau.
   image_vision: 'Ảnh',
+  image: 'Ảnh',
 };
 
 export function factSourceLabel(fact: {

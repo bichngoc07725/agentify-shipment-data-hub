@@ -6,18 +6,35 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 
 from api import app, logger
+from api.routes.admin import router as admin_router
 from api.routes.attachments import router as attachments_router
 from api.routes.app_home import router as app_home_router
+from api.routes.audit import router as audit_router
+from api.routes.auth import router as auth_router
 from api.routes.containers import router as containers_router
+from api.routes.customs import container_router as customs_container_router
+from api.routes.customs import router as customs_router
+from api.routes.debit_notes import container_router as debit_notes_container_router
+from api.routes.debit_notes import router as debit_notes_router
 from api.routes.emails import router as emails_router
+from api.routes.erp_export import router as erp_export_router
 from api.routes.exceptions import router as exceptions_router
+from api.routes.field_images import container_router as field_images_container_router
+from api.routes.field_images import router as field_images_router
 from api.routes.gmail_connections import router as gmail_connections_router
 from api.routes.health import router as health_router
 from api.routes.ingest import router as ingest_router
 from api.routes.manual_ingest import router as manual_ingest_router
+from api.routes.quotes import router as quotes_router
+from api.routes.reconciliation import container_router as reconciliation_container_router
+from api.routes.reconciliation import router as reconciliation_router
+from api.routes.shipments import router as shipments_router
 from api.routes.sync_jobs import router as sync_jobs_router
+from api.routes.system_status import router as system_status_router
+from api.routes.users import router as users_router
 
 app.include_router(health_router)
+app.include_router(auth_router)
 app.include_router(app_home_router)
 app.include_router(attachments_router)
 app.include_router(gmail_connections_router)
@@ -27,6 +44,21 @@ app.include_router(manual_ingest_router)
 app.include_router(containers_router)
 app.include_router(emails_router)
 app.include_router(exceptions_router)
+app.include_router(quotes_router)
+app.include_router(field_images_router)
+app.include_router(field_images_container_router)
+app.include_router(debit_notes_router)
+app.include_router(debit_notes_container_router)
+app.include_router(reconciliation_router)
+app.include_router(reconciliation_container_router)
+app.include_router(customs_router)
+app.include_router(customs_container_router)
+app.include_router(shipments_router)
+app.include_router(audit_router)
+app.include_router(erp_export_router)
+app.include_router(users_router)
+app.include_router(admin_router)
+app.include_router(system_status_router)
 
 
 @app.exception_handler(RequestValidationError)

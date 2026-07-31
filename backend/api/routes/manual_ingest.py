@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.deps.permissions import require_permission
 from api.models import (
     ManualIngestPreviewResponse,
     ManualIngestRequest,
@@ -52,6 +53,7 @@ async def preview_manual_ingest(
 async def create_manual_ingest(
     payload: ManualIngestRequest,
     db: AsyncSession = Depends(get_db),
+    _current_user=Depends(require_permission("manual_ingest", "create")),
 ) -> ManualIngestResponse:
     result = await ingest_manual_content(db, payload)
     return ManualIngestResponse(**result)

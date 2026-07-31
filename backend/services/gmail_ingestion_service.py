@@ -12,11 +12,10 @@ from gmail_service.adapter import (
 )
 from gmail_service.auth import get_gmail_profile, get_gmail_service
 from gmail_service.fetcher import get_email, resolve_sync_message_ids
-from gmail_service.models import ExtractedRecord, GmailEmailPayload
+from gmail_service.models import GmailEmailPayload
 from gmail_service.pdf_reader import read_pdf_text
 from gmail_service.pipeline import (
     process_image_attachment,
-    process_pdf_attachment,
     process_pdf_text,
     process_text_content,
 )
@@ -35,12 +34,6 @@ def build_gmail_oauth_payload(
         "encrypted_refresh_token": refresh_token,
         "status": "connected",
     }
-
-
-def process_gmail_pdf_attachment(
-    email: dict[str, str], filename: str, pdf_bytes: bytes
-) -> ExtractedRecord:
-    return process_pdf_attachment(email, filename, pdf_bytes)
 
 
 def build_processed_email_from_gmail_payload(

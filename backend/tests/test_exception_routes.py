@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 from api import app
 from api.routes import api_main  # noqa: F401  (registers every router on `app`)
 from db.database import get_db
+from db.models import UserRole
+from tests.auth_helpers import bearer_header
 from services.exception_service import (
     ContainerRiskProfile,
     ShipmentException,
@@ -45,7 +47,7 @@ class ExceptionRoutesTest(unittest.TestCase):
         with patch(
             "api.routes.exceptions.list_shipment_exceptions", return_value=exceptions
         ):
-            response = self.client.get("/api/v1/exceptions")
+            response = self.client.get("/api/v1/exceptions", headers=bearer_header(UserRole.OPS))
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -60,7 +62,8 @@ class ExceptionRoutesTest(unittest.TestCase):
             "api.routes.exceptions.list_shipment_exceptions", return_value=[]
         ) as mocked:
             response = self.client.get(
-                "/api/v1/exceptions?severity=critical&code=arrived_no_do&limit=25"
+                "/api/v1/exceptions?severity=critical&code=arrived_no_do&limit=25",
+                headers=bearer_header(UserRole.OPS),
             )
 
         self.assertEqual(response.status_code, 200)
@@ -70,7 +73,7 @@ class ExceptionRoutesTest(unittest.TestCase):
         self.assertEqual(kwargs["limit"], 25)
 
     def test_limit_is_bounded(self) -> None:
-        response = self.client.get("/api/v1/exceptions?limit=9999")
+        response = self.client.get("/api/v1/exceptions?limit=9999", headers=bearer_header(UserRole.OPS))
 
         self.assertEqual(response.status_code, 422)
 
@@ -92,7 +95,7 @@ class ExceptionRoutesTest(unittest.TestCase):
         ), patch(
             "api.routes.exceptions.get_container_risk_profile", return_value=profile
         ):
-            response = self.client.get("/api/v1/containers/CSQU3054383/exceptions")
+            response = self.client.get("/api/v1/containers/CSQU3054383/exceptions", headers=bearer_header(UserRole.OPS))
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -105,14 +108,14 @@ class ExceptionRoutesTest(unittest.TestCase):
 
     def test_unknown_container_returns_404(self) -> None:
         with patch("api.routes.exceptions.get_container_by_no", return_value=None):
-            response = self.client.get("/api/v1/containers/NOSUCH0000000/exceptions")
+            response = self.client.get("/api/v1/containers/NOSUCH0000000/exceptions", headers=bearer_header(UserRole.OPS))
 
         self.assertEqual(response.status_code, 404)
 
     def test_container_detail_route_still_matches_its_own_path(self) -> None:
         """The exceptions router must not shadow `/containers/{no}`."""
         with patch("api.routes.containers.get_container_by_no", return_value=None):
-            response = self.client.get("/api/v1/containers/CSQU3054383")
+            response = self.client.get("/api/v1/containers/CSQU3054383", headers=bearer_header(UserRole.OPS))
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"], "Container not found")

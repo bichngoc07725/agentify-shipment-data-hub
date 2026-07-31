@@ -15,10 +15,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Attachment, Container, ContainerFact
+from db.models import (
+    Attachment,
+    Container,
+    ContainerFact,
+    CustomsDeclaration,
+    ExceptionAction,
+)
 
 # Days before free time runs out that we start warning.
 FREE_TIME_WARNING_DAYS = 3
@@ -166,6 +172,8 @@ def detect_exceptions(
     has_unlinked_charges: bool = False,
     today: date | None = None,
     documents_mentioned: set[str] | None = None,
+    customs_channel: str | None = None,
+    customs_declaration_no: str | None = None,
 ) -> list[ShipmentException]:
     """Apply every rule to one container and return the exceptions that fired.
 
@@ -335,6 +343,31 @@ def detect_exceptions(
             )
         )
 
+    if customs_channel in ("yellow", "red"):
+        is_red = customs_channel == "red"
+        label = "Luồng Đỏ" if is_red else "Luồng Vàng"
+        declaration_note = (
+            f" số {customs_declaration_no}" if customs_declaration_no else ""
+        )
+        exceptions.append(
+            ShipmentException(
+                container_no=container.container_no,
+                code="customs_red" if is_red else "customs_yellow",
+                severity=SEVERITY_CRITICAL if is_red else SEVERITY_WARNING,
+                title=f"Tờ khai {label}",
+                detail=(
+                    f"Tờ khai hải quan{declaration_note} bị phân vào {label} — "
+                    + (
+                        "kiểm tra thực tế hàng, dễ chậm tiến độ và phát sinh phí lưu."
+                        if is_red
+                        else "cần kiểm tra hồ sơ giấy trước khi thông quan."
+                    )
+                ),
+                evidence=[f"Phân luồng: {label}"]
+                + ([f"Số tờ khai: {customs_declaration_no}"] if customs_declaration_no else []),
+            )
+        )
+
     exceptions.sort(key=lambda item: (_SEVERITY_ORDER[item.severity], item.code))
     return exceptions
 
@@ -370,6 +403,8 @@ def build_risk_profile(
     last_source_at: datetime | None,
     today: date | None = None,
     documents_mentioned: set[str] | None = None,
+    customs_channel: str | None = None,
+    customs_declaration_no: str | None = None,
 ) -> ContainerRiskProfile:
     on_file = canonical_document_types(document_types)
     mentioned = canonical_document_types(documents_mentioned or set())
@@ -394,6 +429,8 @@ def build_risk_profile(
             has_unlinked_charges=bool(CHARGE_DOCUMENT_TYPES & on_file),
             today=today,
             documents_mentioned=mentioned,
+            customs_channel=customs_channel,
+            customs_declaration_no=customs_declaration_no,
         ),
         documents_present=present,
         documents_mentioned=mentioned_only,
@@ -428,6 +465,8 @@ async def load_container_context(
             "documents_mentioned": set(),
             "eta_history": [],
             "last_source_at": None,
+            "customs_channel": None,
+            "customs_declaration_no": None,
         }
         for container_id in container_ids
     }
@@ -493,6 +532,29 @@ async def load_container_context(
         if current is None or sent_at > current:
             context[container_id]["last_source_at"] = sent_at
 
+    # A container can be re-declared; only the most recent channel matters for
+    # the "currently at risk" warning. Ordered so the first row seen per
+    # container is the latest one.
+    customs_rows = await db.execute(
+        select(
+            CustomsDeclaration.container_id,
+            CustomsDeclaration.channel,
+            CustomsDeclaration.declaration_no,
+        )
+        .where(CustomsDeclaration.container_id.in_(container_ids))
+        .order_by(
+            CustomsDeclaration.container_id,
+            CustomsDeclaration.created_at.desc(),
+        )
+    )
+    seen_declarations: set = set()
+    for container_id, channel, declaration_no in customs_rows.all():
+        if container_id in seen_declarations:
+            continue
+        seen_declarations.add(container_id)
+        context[container_id]["customs_channel"] = channel.value if channel else None
+        context[container_id]["customs_declaration_no"] = declaration_no
+
     return context
 
 
@@ -505,6 +567,65 @@ def _parse_iso_date(value: str | None) -> date | None:
         return None
 
 
+async def load_exception_suppressions(
+    db: AsyncSession, container_ids: list
+) -> dict:
+    """Latest resolve/approve timestamp per (container_id, code).
+
+    Exceptions have no status column to flip — they are recomputed from the
+    data on every request — so a human "đã xử lý" is expressed as a row in
+    `exception_actions`, and this is where that row is read back to actually
+    take the exception off the worklist.
+    """
+
+    if not container_ids:
+        return {}
+
+    result = await db.execute(
+        select(
+            ExceptionAction.container_id,
+            ExceptionAction.code,
+            func.max(ExceptionAction.created_at),
+        )
+        .where(ExceptionAction.container_id.in_(container_ids))
+        .group_by(ExceptionAction.container_id, ExceptionAction.code)
+    )
+
+    suppressions: dict = {}
+    for container_id, code, acted_at in result.all():
+        suppressions.setdefault(container_id, {})[code] = acted_at
+    return suppressions
+
+
+def _is_suppressed(
+    acted_at: datetime | None, last_source_at: datetime | None
+) -> bool:
+    """An action silences its exception only until fresher data lands.
+
+    Marking a free-time warning as handled should not hide it forever: if a
+    new arrival notice arrives afterwards and the exception still fires, the
+    situation changed and the worklist has to say so again.
+    """
+
+    if acted_at is None:
+        return False
+    if last_source_at is None:
+        return True
+    return acted_at >= last_source_at
+
+
+def _drop_actioned(
+    exceptions: list[ShipmentException],
+    acted_codes: dict,
+    last_source_at: datetime | None,
+) -> list[ShipmentException]:
+    return [
+        item
+        for item in exceptions
+        if not _is_suppressed(acted_codes.get(item.code), last_source_at)
+    ]
+
+
 async def list_shipment_exceptions(
     db: AsyncSession,
     severity: str | None = None,
@@ -513,22 +634,30 @@ async def list_shipment_exceptions(
 ) -> list[ShipmentException]:
     result = await db.execute(select(Container))
     containers = list(result.scalars().all())
-    context = await load_container_context(db, [c.id for c in containers])
+    container_ids = [c.id for c in containers]
+    context = await load_container_context(db, container_ids)
+    suppressions = await load_exception_suppressions(db, container_ids)
 
     exceptions: list[ShipmentException] = []
     for container in containers:
         ctx = context.get(container.id, {})
+        last_source_at = ctx.get("last_source_at")
+        detected = detect_exceptions(
+            container,
+            ctx.get("document_types", set()),
+            ctx.get("eta_history", []),
+            last_source_at,
+            has_unlinked_charges=bool(
+                CHARGE_DOCUMENT_TYPES
+                & canonical_document_types(ctx.get("document_types", set()))
+            ),
+            documents_mentioned=ctx.get("documents_mentioned", set()),
+            customs_channel=ctx.get("customs_channel"),
+            customs_declaration_no=ctx.get("customs_declaration_no"),
+        )
         exceptions.extend(
-            detect_exceptions(
-                container,
-                ctx.get("document_types", set()),
-                ctx.get("eta_history", []),
-                ctx.get("last_source_at"),
-                has_unlinked_charges=bool(
-                    CHARGE_DOCUMENT_TYPES
-                    & canonical_document_types(ctx.get("document_types", set()))
-                ),
-                documents_mentioned=ctx.get("documents_mentioned", set()),
+            _drop_actioned(
+                detected, suppressions.get(container.id, {}), last_source_at
             )
         )
 
@@ -552,10 +681,19 @@ async def get_container_risk_profile(
 ) -> ContainerRiskProfile:
     context = await load_container_context(db, [container.id])
     ctx = context.get(container.id, {})
-    return build_risk_profile(
+    last_source_at = ctx.get("last_source_at")
+    profile = build_risk_profile(
         container,
         ctx.get("document_types", set()),
         ctx.get("eta_history", []),
-        ctx.get("last_source_at"),
+        last_source_at,
         documents_mentioned=ctx.get("documents_mentioned", set()),
+        customs_channel=ctx.get("customs_channel"),
+        customs_declaration_no=ctx.get("customs_declaration_no"),
     )
+
+    suppressions = await load_exception_suppressions(db, [container.id])
+    profile.exceptions = _drop_actioned(
+        profile.exceptions, suppressions.get(container.id, {}), last_source_at
+    )
+    return profile

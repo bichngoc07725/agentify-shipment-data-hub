@@ -29,6 +29,10 @@ from api.models import (
 )
 from db.models import Container
 from gmail_service.adapter import SUMMARY_FIELDS
+from gmail_service.deterministic_extract import (
+    extract_deterministic,
+    find_container_numbers,
+)
 from gmail_service.field_extract import extract_fields
 from gmail_service.pipeline import process_image_attachment
 from services.aggregation_service import normalize_container_no
@@ -115,11 +119,76 @@ async def split_known_containers(
     )
 
 
+def segment_by_container(content: str) -> list[tuple[str, str]]:
+    """Chia đoạn chat thành các cụm `(container_no, văn bản của cụm)`.
+
+    Chat log là theo dòng, và người đọc hiểu ngầm rằng các dòng sau một mã
+    container là đang nói về container đó, cho tới khi xuất hiện mã khác. Ta
+    bám đúng quy ước đó: một dòng có mã container mở cụm mới, các dòng tiếp
+    theo thuộc về cụm đang mở.
+
+    Dòng đứng TRƯỚC mã container đầu tiên không thuộc về ai nên bị bỏ — thà
+    thiếu còn hơn gán bừa cho một container mà đoạn chat không hề nhắc tới.
+    """
+    segments: list[tuple[str, list[str]]] = []
+    for line in content.splitlines():
+        # Dùng lại đúng bộ dò mà `extract_deterministic` dùng (ghép 2 nhóm của
+        # regex + chuẩn hoá hoa thường). Nó trả về cả mã sai checksum, và ta
+        # giữ nguyên như vậy: `container_numbers_in()` cũng nhận mã sai
+        # checksum, nên nếu ở đây lọc chặt hơn thì container đó sẽ không có
+        # cụm nào và mất sạch fact — kể cả fact `container_no`.
+        valid = [no for no, _ in find_container_numbers(line)]
+        if valid:
+            # Một dòng nhắc nhiều mã thì mã nào cũng nhận dòng đó; các dòng
+            # sau thuộc về mã cuối cùng (mã được nói tới gần nhất).
+            for container_no in valid:
+                segments.append((container_no, [line]))
+        elif segments:
+            segments[-1][1].append(line)
+    return [(no, "\n".join(lines)) for no, lines in segments]
+
+
+def _fields_per_container(
+    payload: ManualIngestRequest, fields: dict
+) -> list[tuple[str, dict, str]]:
+    """Trả `(container_no, fields của riêng nó, status_text của riêng nó)`.
+
+    Một container thì giữ nguyên đường cũ — dùng `fields` đã trích cho cả đoạn,
+    tức vẫn hưởng LLM nếu có cấu hình, không đổi hành vi.
+
+    Nhiều container thì phải quy thuộc tính về đúng chủ, và ở đây cố ý chỉ dùng
+    bộ trích deterministic cho từng cụm: `extract_fields` có gọi LLM, nên chạy
+    lại nó cho mỗi cụm sẽ nhân số lượt gọi (và chi phí) lên theo số container.
+    Đổi lại một chút phong phú để lấy tính đúng đắn — dữ liệu gán sai còn tệ
+    hơn dữ liệu thiếu.
+    """
+    container_nos = container_numbers_in(fields)
+    unique_nos = list(dict.fromkeys(container_nos))
+    if len(unique_nos) <= 1:
+        return [
+            (no, fields, _first_line(payload.content)) for no in unique_nos
+        ]
+
+    per_container: list[tuple[str, dict, str]] = []
+    for container_no, segment_text in segment_by_container(payload.content):
+        segment_fields = extract_deterministic("", payload.sender or "", segment_text)
+        segment_fields["doc_type"] = fields.get("doc_type")
+        per_container.append((container_no, segment_fields, _first_line(segment_text)))
+
+    # `fields` có thể chứa mã không xuất hiện nguyên văn trong text (ví dụ LLM
+    # suy ra được, hoặc caller truyền vào). Những mã đó không có cụm nào, nhưng
+    # vẫn phải giữ lại danh tính container — nếu bỏ luôn thì cả fact
+    # `container_no` cũng mất. Chỉ ghi nhận mã, KHÔNG kèm thuộc tính hay
+    # status_text, vì không có căn cứ nào để quy chúng về container này.
+    seen = {no for no, _, _ in per_container}
+    for container_no in unique_nos:
+        if container_no not in seen:
+            per_container.append((container_no, {}, ""))
+    return per_container
+
+
 def build_facts(payload: ManualIngestRequest, fields: dict) -> list[IngestFactRequest]:
     """Turn extracted fields into facts, one per container mentioned."""
-    container_nos = container_numbers_in(fields)
-    identifiers = fields.get("identifiers") or {}
-    route = fields.get("route") or {}
     document_type = fields.get("doc_type")
     source_label = payload.source_label or CHANNEL_LABELS.get(
         payload.channel, payload.channel
@@ -144,30 +213,37 @@ def build_facts(payload: ManualIngestRequest, fields: dict) -> list[IngestFactRe
             )
         )
 
-    for container_no in container_nos:
+    scoped = _fields_per_container(payload, fields)
+
+    for container_no, _, _ in scoped:
         add("container_no", container_no, container_no)
 
     # Without a container the fact has nothing to hang off, so only the
-    # container-scoped fields are recorded.
-    for container_no in container_nos:
+    # container-scoped fields are recorded. Mỗi container chỉ nhận thuộc tính
+    # trích được TỪ CỤM VĂN BẢN CỦA CHÍNH NÓ — trước đây dùng chung một dict
+    # phẳng cho cả đoạn nên seal của cont này bị gán sang cont khác.
+    for container_no, container_fields, status_text in scoped:
+        identifiers = container_fields.get("identifiers") or {}
+        route = container_fields.get("route") or {}
+
         for field_name in SUMMARY_FIELDS:
             add(field_name, identifiers.get(field_name) or route.get(field_name), container_no)
 
         for seal_no in identifiers.get("seal_no") or []:
             add("seal_no", seal_no, container_no)
 
-        free_time_days = fields.get("free_time_days")
+        free_time_days = container_fields.get("free_time_days")
         if free_time_days is not None:
             add("free_time_days", free_time_days, container_no)
 
-        add("status_text", _status_text(payload), container_no)
+        add("status_text", status_text, container_no)
 
     return facts
 
 
-def _status_text(payload: ManualIngestRequest) -> str:
+def _first_line(content: str) -> str:
     first_line = next(
-        (line.strip() for line in payload.content.splitlines() if line.strip()), ""
+        (line.strip() for line in content.splitlines() if line.strip()), ""
     )
     if not first_line and payload.image_base64:
         return "Ảnh đính kèm"

@@ -1,33 +1,91 @@
-/* === Design Tokens === */
+/* === Design Tokens ===
+   Values copied from Slash Admin (github.com/d3george/slash-admin)
+   src/theme/tokens/{color,typography,shadow}.ts — see plan/phase_9_ui_theme_brief.md
+   Part 9A. Variable NAMES kept stable so every existing component/class in
+   this file (and every page importing them) picks up the new palette
+   without a rename pass; only new tokens (bg-surface, *-fill, *-soft,
+   card-shadow, radius-card/control) are additions. */
 :root {
-  --bg-app: #f5f6f8;
-  --bg-sidebar: #f0f2f5;
-  --bg-panel: #ffffff;
-  --bg-hover: #f4f6f9;
-  --bg-selected: #edf3ff;
+  --bg-app: #F9FAFB;
+  --bg-sidebar: #FFFFFF;
+  --bg-panel: #FFFFFF;
+  --bg-surface: #FFFFFF;
+  --bg-hover: rgba(145, 158, 171, .08);
+  --bg-selected: #C8FAD6;
 
-  --text-primary: #18202b;
-  --text-secondary: #556274;
-  --text-muted: #7b8797;
+  --text-primary: #1C252E;
+  --text-secondary: #637381;
+  --text-muted: #919EAB;
 
-  --border-subtle: #e1e5ea;
-  --border-strong: #cfd5dd;
+  --border-subtle: #F4F6F8;
+  --border-strong: #DFE3E8;
 
-  --accent: #315fce;
-  --accent-hover: #284fae;
-  --accent-soft: #edf3ff;
+  --accent: #00A76F;
+  --accent-hover: #007867;
+  --accent-soft: #C8FAD6;
 
-  --success: #247a52;
-  --warning: #9a6700;
-  --danger: #b33a3a;
-  --info: #315fce;
+  /* Each status has a "text" color (readable on --bg-app/--bg-surface), a
+     "-fill" (the saturated brand color, for solid dots/icons), and a
+     "-soft" background tint (badge/banner fill) — Slash Admin's own
+     lighter/default/dark triad per status. */
+  --success: #1B806A;
+  --success-fill: #36B37E;
+  --success-soft: #D8FBDE;
+  --warning: #B76E00;
+  --warning-fill: #FFAB00;
+  --warning-soft: #FFF5CC;
+  --danger: #B71D18;
+  --danger-fill: #FF5630;
+  --danger-soft: #FFE9D5;
+  --info: #006C9C;
+  --info-fill: #00B8D9;
+  --info-soft: #CAFDF5;
+
+  --card-shadow: 0 0 2px 0 rgba(145, 158, 171, .2), 0 12px 24px -4px rgba(145, 158, 171, .12);
 
   --sidebar-width: 240px;
   --toolbar-height: 56px;
-  --radius-btn: 8px;
-  --radius-panel: 10px;
-  --font-ui: 'Inter', 'Segoe UI', sans-serif;
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-btn: var(--radius-control);
+  --radius-panel: var(--radius-card);
+  --font-ui: 'Inter', 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+}
+
+[data-theme="dark"] {
+  --bg-app: #141A21;
+  --bg-sidebar: #1C252E;
+  --bg-panel: #1C252E;
+  --bg-surface: #1C252E;
+  --bg-hover: rgba(145, 158, 171, .16);
+  --bg-selected: #004B50;
+
+  --text-primary: #F9FAFB;
+  --text-secondary: #C4CDD5;
+  --text-muted: #919EAB;
+
+  --border-subtle: #27272A;
+  --border-strong: #454F5B;
+
+  --accent: #5BE49B;
+  --accent-hover: #00A76F;
+  --accent-soft: #004B50;
+
+  --success: #5BE49B;
+  --success-fill: #36B37E;
+  --success-soft: rgba(54, 179, 126, .16);
+  --warning: #FFD666;
+  --warning-fill: #FFAB00;
+  --warning-soft: rgba(255, 171, 0, .16);
+  --danger: #FFAC82;
+  --danger-fill: #FF5630;
+  --danger-soft: rgba(255, 86, 48, .16);
+  --info: #61F3F9;
+  --info-fill: #00B8D9;
+  --info-soft: rgba(0, 184, 217, .16);
+
+  --card-shadow: 0 0 2px 0 rgba(0, 0, 0, .4), 0 12px 24px -4px rgba(0, 0, 0, .32);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -77,7 +135,7 @@ h3 { font-size: 15px; font-weight: 600; }
 .sidebar {
   width: var(--sidebar-width);
   flex-shrink: 0;
-  background: var(--bg-sidebar);
+  background: var(--bg-surface);
   border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
@@ -134,6 +192,13 @@ h3 { font-size: 15px; font-weight: 600; }
   white-space: nowrap; overflow: hidden;
 }
 
+.nav-group-label {
+  font-size: 11px; font-weight: 600; letter-spacing: .04em;
+  color: var(--text-muted);
+  padding: 14px 10px 4px;
+  text-transform: uppercase;
+}
+
 .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
 .nav-item.active { background: var(--bg-selected); color: var(--accent); }
 .nav-item svg { flex-shrink: 0; width: 18px; height: 18px; }
@@ -179,8 +244,6 @@ h3 { font-size: 15px; font-weight: 600; }
   flex-shrink: 0;
 }
 
-.toolbar-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
-
 .toolbar-search {
   flex: 1; max-width: 520px;
   display: flex; align-items: center; gap: 8px;
@@ -206,7 +269,7 @@ h3 { font-size: 15px; font-weight: 600; }
 .btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 7px 14px;
-  border-radius: var(--radius-btn);
+  border-radius: var(--radius-control);
   font-size: 14px; font-weight: 500;
   cursor: pointer; border: none;
   transition: background 120ms, opacity 120ms;
@@ -276,11 +339,11 @@ h3 { font-size: 15px; font-weight: 600; }
   font-size: 11px; font-weight: 500;
   white-space: nowrap;
 }
-.badge-success { background: #dcf2e9; color: var(--success); }
-.badge-warning { background: #fef3c7; color: var(--warning); }
-.badge-danger { background: #fde8e8; color: var(--danger); }
+.badge-success { background: var(--success-soft); color: var(--success); }
+.badge-warning { background: var(--warning-soft); color: var(--warning); }
+.badge-danger { background: var(--danger-soft); color: var(--danger); }
 .badge-info { background: var(--accent-soft); color: var(--accent); }
-.badge-neutral { background: #f0f2f5; color: var(--text-secondary); }
+.badge-neutral { background: var(--bg-hover); color: var(--text-secondary); }
 
 /* Rows */
 .list-row {
@@ -320,6 +383,30 @@ h3 { font-size: 15px; font-weight: 600; }
   font-size: 12px; color: var(--text-secondary);
   display: flex; gap: 8px; align-items: center; margin-top: 2px;
 }
+
+/* Page containers.
+   One scale for the whole app, picked by what the page holds rather than by
+   a number typed per page. Widths were previously inline in each page, which
+   is how 780/960/1100 drifted apart with no rule behind them.
+   The `min-width: 1600px` tier below is what lets a large monitor actually
+   gain room — every other media query in this file only shrinks. */
+.page-container {
+  --page-width: 1200px;
+  width: 100%;
+  max-width: var(--page-width);
+  margin: 0 auto;
+  padding: 32px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Forms and single-record reading: long lines hurt scanability, so these
+   stay narrow no matter how wide the monitor is. */
+.page-container.page-narrow { --page-width: 820px; }
+
+/* Wide data tables (audit log, permission matrix, reconciliation rows). */
+.page-container.page-wide { --page-width: 1440px; }
 
 /* Detail panels */
 .detail-panel { padding: 24px; display: flex; flex-direction: column; gap: 24px; }
@@ -396,7 +483,7 @@ h3 { font-size: 15px; font-weight: 600; }
 .form-label { font-size: 13px; font-weight: 500; color: var(--text-primary); }
 .form-input, .form-select, .form-textarea {
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-btn);
+  border-radius: var(--radius-control);
   padding: 8px 12px;
   font-size: 14px;
   color: var(--text-primary);
@@ -413,9 +500,10 @@ h3 { font-size: 15px; font-weight: 600; }
 
 /* Cards */
 .card {
-  background: var(--bg-panel);
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
+  border-radius: var(--radius-card);
+  box-shadow: var(--card-shadow);
   padding: 20px;
 }
 
@@ -466,9 +554,9 @@ h3 { font-size: 15px; font-weight: 600; }
   border-radius: var(--radius-panel);
   font-size: 14px;
 }
-.banner-warning { background: #fef9ec; border: 1px solid #f3d88a; color: #7a5200; }
-.banner-info { background: var(--accent-soft); border: 1px solid #c4d5f7; color: #1e3a8a; }
-.banner-danger { background: #fde8e8; border: 1px solid #f5b8b8; color: var(--danger); }
+.banner-warning { background: var(--warning-soft); border: 1px solid var(--warning-fill); color: var(--warning); }
+.banner-info { background: var(--info-soft); border: 1px solid var(--info-fill); color: var(--info); }
+.banner-danger { background: var(--danger-soft); border: 1px solid var(--danger-fill); color: var(--danger); }
 
 /* Divider */
 .divider { height: 1px; background: var(--border-subtle); }
@@ -484,7 +572,7 @@ h3 { font-size: 15px; font-weight: 600; }
 }
 .search-box:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(49,95,206,0.12);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .search-box input {
   flex: 1; border: none; background: transparent;
@@ -512,10 +600,6 @@ h3 { font-size: 15px; font-weight: 600; }
 }
 .gmail-logo { font-size: 40px; margin-bottom: 16px; }
 
-/* Progress bar */
-.progress-bar { height: 4px; background: var(--border-subtle); border-radius: 2px; overflow: hidden; }
-.progress-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 400ms; }
-
 /* Attachment list */
 .attachment-item {
   display: flex; align-items: center; gap: 10px;
@@ -541,7 +625,28 @@ h3 { font-size: 15px; font-weight: 600; }
 .chip:hover { background: var(--bg-hover); color: var(--text-primary); }
 .chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
-/* Responsive */
+/* Container progress timeline (GĐ9C) */
+.timeline-step { min-width: 64px; }
+.timeline-line { border-radius: 1px; }
+.timeline-label { text-align: center; }
+
+/* Responsive.
+   Note the direction of each block: the `min-width` tier grows the layout on
+   large monitors, the `max-width` tiers below collapse it on small ones. */
+
+/* Large desktop (2K/4K, or a maximised window on a 27"+ panel). Without this
+   the app renders identically at 1280 and at 2560 — the extra pixels just
+   became empty margin. */
+@media (min-width: 1600px) {
+  .page-container { --page-width: 1440px; }
+  .page-container.page-narrow { --page-width: 960px; }
+  .page-container.page-wide { --page-width: 1760px; }
+  .split-list { width: 460px; }
+  .inspector-panel { width: 420px; }
+  /* More room per fact means fewer wrapped values in the container profile. */
+  .fact-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+}
+
 @media (max-width: 1024px) {
   .sidebar { width: 64px; }
   .sidebar-brand, .nav-item span, .mailbox-status .flex-1 { display: none; }

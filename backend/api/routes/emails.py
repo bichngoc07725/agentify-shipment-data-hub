@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.deps.permissions import CurrentUser, require_permission
 from api.models import EmailDetailResponse, EmailListItem, EmailListResponse
 from api.routes.attachments import attachment_file_url
 from db.database import get_db
@@ -17,6 +18,9 @@ async def list_emails_endpoint(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    _current_user: CurrentUser = Depends(
+        require_permission("shipping_document", "view")
+    ),
 ) -> EmailListResponse:
     items, total = await list_emails(
         db,
@@ -54,6 +58,9 @@ async def list_emails_endpoint(
 async def get_email_detail_endpoint(
     email_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _current_user: CurrentUser = Depends(
+        require_permission("shipping_document", "view")
+    ),
 ) -> EmailDetailResponse:
     detail = await get_email_detail(db, email_id)
     if detail is None:

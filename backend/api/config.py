@@ -13,6 +13,9 @@ class TagsMetadata:
     HEALTH: Metadata = Metadata(
         name="health", description="Service and database health."
     )
+    AUTH: Metadata = Metadata(
+        name="auth", description="User login and JWT issuance."
+    )
     GMAIL_CONNECTIONS: Metadata = Metadata(
         name="gmail-connections", description="Connected Gmail mailboxes."
     )
@@ -34,33 +37,10 @@ class TagsMetadata:
 
 class Configs:
     @staticmethod
-    def get_health_tag() -> str:
-        return TagsMetadata.HEALTH.name
-
-    @staticmethod
-    def get_gmail_connections_tag() -> str:
-        return TagsMetadata.GMAIL_CONNECTIONS.name
-
-    @staticmethod
-    def get_sync_jobs_tag() -> str:
-        return TagsMetadata.SYNC_JOBS.name
-
-    @staticmethod
-    def get_internal_ingestion_tag() -> str:
-        return TagsMetadata.INTERNAL_INGESTION.name
-
-    @staticmethod
-    def get_containers_tag() -> str:
-        return TagsMetadata.CONTAINERS.name
-
-    @staticmethod
-    def get_emails_tag() -> str:
-        return TagsMetadata.EMAILS.name
-
-    @staticmethod
     def get_tags_metadata() -> list[dict[str, Any]]:
         return [
             TagsMetadata.HEALTH.model_dump(),
+            TagsMetadata.AUTH.model_dump(),
             TagsMetadata.GMAIL_CONNECTIONS.model_dump(),
             TagsMetadata.SYNC_JOBS.model_dump(),
             TagsMetadata.INTERNAL_INGESTION.model_dump(),
