@@ -1,5 +1,5 @@
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
@@ -14,10 +14,13 @@ from tests.auth_helpers import bearer_header
 
 
 def make_shipment(**overrides):
+    # Hạn SLA phải tính tương đối với hiện tại. Mốc cố định kiểu
+    # `datetime(2026, 8, 2)` chỉ đúng cho tới khi lịch chạy tới ngày đó, rồi
+    # `is_sla_breached` bật True và test đỏ dù code không đổi một dòng nào.
     defaults = dict(
         id=uuid4(),
         stage=ShipmentStage.CUSTOMS,
-        sla_due_at=datetime(2026, 8, 2, tzinfo=UTC),
+        sla_due_at=datetime.now(UTC) + timedelta(days=7),
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

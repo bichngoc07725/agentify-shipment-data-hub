@@ -255,11 +255,16 @@ def call_gemini(
     # Gemini vẫn trả JSON hợp lệ nhưng tự đặt tên trường, và dữ liệu nó đọc được
     # sẽ bị `merge_records` bỏ đi hết — pipeline báo "hybrid" trong khi thực chất
     # chỉ có regex chạy.
+    #
+    # Dùng `response_json_schema` (nhận JSON Schema thô) chứ không phải
+    # `response_schema` + `to_gemini_schema()`: EXTRACTION_SCHEMA có union
+    # `[x, null]` và `additionalProperties`, mà bản chuyển đổi sang phương ngữ
+    # OpenAPI phải bỏ bớt hai thứ đó đi.
     config = None
     if schema is not None:
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_schema=to_gemini_schema(schema),
+            response_json_schema=schema,
         )
 
     response = client.models.generate_content(

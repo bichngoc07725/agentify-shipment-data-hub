@@ -303,18 +303,22 @@ class GeminiSchemaEnforcementTest(unittest.TestCase):
 
         self.assertIs(spy.call_args.args[1], EXTRACTION_SCHEMA)
 
-    def test_schema_is_forwarded_to_the_sdk_as_response_schema(self) -> None:
+    def test_schema_is_forwarded_to_the_sdk_as_response_json_schema(self) -> None:
+        """Phải là `response_json_schema` (JSON Schema thô), không phải
+        `response_schema` — EXTRACTION_SCHEMA có union `[x, null]` và
+        `additionalProperties`, chuyển sang phương ngữ OpenAPI là mất."""
+        schema = {"type": "object", "properties": {}}
         fake_client_cls = MagicMock(return_value=_fake_client('{"doc_type": "other"}'))
 
         with (
             patch.object(llm_client, "GEMINI_API_KEY", "k"),
             patch("google.genai.Client", fake_client_cls),
         ):
-            call_gemini("prompt", {"type": "object", "properties": {}})
+            call_gemini("prompt", schema)
 
         config = fake_client_cls.return_value.models.generate_content.call_args.kwargs["config"]
         self.assertEqual(config.response_mime_type, "application/json")
-        self.assertIsNotNone(config.response_schema)
+        self.assertEqual(config.response_json_schema, schema)
 
     def test_no_schema_means_no_config_so_old_callers_still_work(self) -> None:
         fake_client_cls = MagicMock(return_value=_fake_client('{"doc_type": "other"}'))

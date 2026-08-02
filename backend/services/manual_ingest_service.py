@@ -164,9 +164,11 @@ def _fields_per_container(
     """
     container_nos = container_numbers_in(fields)
     unique_nos = list(dict.fromkeys(container_nos))
+    image_only_fallback = "Ảnh đính kèm" if payload.image_base64 else ""
     if len(unique_nos) <= 1:
         return [
-            (no, fields, _first_line(payload.content)) for no in unique_nos
+            (no, fields, _first_line(payload.content, image_only_fallback))
+            for no in unique_nos
         ]
 
     per_container: list[tuple[str, dict, str]] = []
@@ -241,12 +243,21 @@ def build_facts(payload: ManualIngestRequest, fields: dict) -> list[IngestFactRe
     return facts
 
 
-def _first_line(content: str) -> str:
+def _first_line(content: str, fallback: str = "") -> str:
+    """Dòng đầu của MỘT đoạn, không phải của cả tin nhắn.
+
+    Nhận `content` thay vì cả `payload` vì mỗi container phải lấy status_text
+    từ đúng đoạn của nó — dùng chung dòng đầu của cả tin thì seal/ETA của
+    container này bị gán sang container khác.
+
+    `fallback` để caller truyền "Ảnh đính kèm" khi tin chỉ có ảnh không có chữ,
+    lúc đó không có dòng nào để lấy.
+    """
     first_line = next(
         (line.strip() for line in content.splitlines() if line.strip()), ""
     )
-    if not first_line and payload.image_base64:
-        return "Ảnh đính kèm"
+    if not first_line:
+        return fallback
     return first_line[:255]
 
 
