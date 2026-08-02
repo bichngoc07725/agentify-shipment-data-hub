@@ -44,3 +44,6 @@ backend/storage/field_images/
 # Gmail OAuth client secret downloaded from Google Cloud Console
 backend/client_secret_*.json
 credentials.json
+
+# Ngữ cảnh công cụ AI cá nhân — không thuộc tài liệu dự án
+CLAUDE.md

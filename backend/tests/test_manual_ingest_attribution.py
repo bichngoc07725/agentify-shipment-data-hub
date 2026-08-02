@@ -3,7 +3,8 @@
 Lỗi gốc: `build_facts` trích ra MỘT dict phẳng cho cả đoạn chat rồi rải nó lên
 mọi container được nhắc tới. Hậu quả tái hiện được trên DB thật: seal của
 container A bị gán cho cả B và C, ETA của B gán cho cả A và C. Đây là hành vi
-"bịa dữ liệu" mà `CLAUDE.md` cấm — và nó chảy thẳng vào exception engine, sinh
+"bịa dữ liệu" mà nguyên tắc provenance của dự án cấm — mọi giá trị phải giữ
+đúng nguồn gốc. Nó chảy thẳng vào exception engine, sinh
 cảnh báo free-time sai.
 """
 
