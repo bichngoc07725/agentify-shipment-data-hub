@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from api.models import ProcessedEmailIngestRequest
 from gmail_service.adapter import (
+    BACKEND_ROOT,
     AttachmentExtractionResult,
     GmailAttachmentPayload,
     GmailEmailPayload,
@@ -74,7 +75,10 @@ class GmailAdapterTest(unittest.TestCase):
             extraction_status="ok",
         )
 
-        backend_root = Path("backend").resolve()
+        # Anchor on the same constant the adapter uses, so the returned
+        # relative `storage_path` resolves regardless of the pytest cwd
+        # (repo root or `backend/`).
+        backend_root = BACKEND_ROOT
         storage_root = backend_root / "storage"
         storage_root.mkdir(parents=True, exist_ok=True)
         with TemporaryDirectory(dir=storage_root) as temp_dir:

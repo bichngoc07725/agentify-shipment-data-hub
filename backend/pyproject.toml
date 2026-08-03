@@ -22,6 +22,10 @@ dependencies = [
   "google-auth-oauthlib==1.2.2",
   "pdfplumber==0.11.7",
   "pymupdf==1.26.4",
+  "bcrypt==4.2.0",
+  "pyjwt==2.10.1",
+  # Starlette's UploadFile (multipart/form-data) needs this at runtime.
+  "python-multipart==0.0.20",
 ]
 
 [dependency-groups]

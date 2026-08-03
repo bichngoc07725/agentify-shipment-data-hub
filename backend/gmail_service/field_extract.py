@@ -303,6 +303,8 @@ def call_llm(subject: str, sender: str, text: str) -> dict[str, Any]:
     if EXTRACTION_PROVIDER == "azure_openai":
         return call_azure_openai(prompt, EXTRACTION_SCHEMA)
     if EXTRACTION_PROVIDER == "gemini":
+        # Truyền schema để Gemini trả về đúng cấu trúc `merge_records` mong đợi,
+        # ngang với ràng buộc `strict: True` của nhánh Azure.
         return call_gemini(prompt, EXTRACTION_SCHEMA)
     raise ExtractionUnavailable(
         f"No LLM extraction provider configured (provider={EXTRACTION_PROVIDER!r})"

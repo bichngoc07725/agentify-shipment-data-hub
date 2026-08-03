@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.deps.permissions import require_permission
 from api.models import (
     GmailOAuthStartResponse,
     GmailConnectionResponse,
@@ -28,6 +29,7 @@ router = APIRouter(prefix="/api/v1/gmail-connections", tags=["gmail-connections"
 @router.get("", response_model=list[GmailConnectionResponse])
 async def get_gmail_connections(
     db: AsyncSession = Depends(get_db),
+    _current_user=Depends(require_permission("system_config", "view")),
 ) -> list[GmailConnectionResponse]:
     return await list_gmail_connections(db)
 
@@ -36,6 +38,7 @@ async def get_gmail_connections(
 async def create_or_update_gmail_connection(
     payload: GmailConnectionUpsertRequest,
     db: AsyncSession = Depends(get_db),
+    _current_user=Depends(require_permission("system_config", "edit")),
 ) -> GmailConnectionResponse:
     return await upsert_gmail_connection(db, payload)
 
@@ -54,6 +57,7 @@ async def disconnect_gmail_connection_endpoint(
 @router.get("/oauth/start", response_model=GmailOAuthStartResponse)
 async def start_gmail_oauth(
     redirect_to: str | None = Query(default=None),
+    _current_user=Depends(require_permission("system_config", "edit")),
 ) -> GmailOAuthStartResponse:
     state = _encode_state({"redirect_to": redirect_to or GMAIL_FRONTEND_RETURN_URL})
     return GmailOAuthStartResponse(authorization_url=build_authorization_url(state))
@@ -65,6 +69,9 @@ async def gmail_oauth_callback(
     state: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
+    # Not gated by `require_permission`: this is a browser redirect FROM
+    # Google, which cannot carry an Authorization header. `state` correlates
+    # the flow back to whoever called `/oauth/start` (already gated above).
     redirect_to = GMAIL_FRONTEND_RETURN_URL
     try:
         state_payload = _decode_state(state)

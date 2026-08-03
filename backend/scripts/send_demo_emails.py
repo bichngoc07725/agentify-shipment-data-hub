@@ -8,7 +8,6 @@ import time
 from dataclasses import dataclass
 from email import policy
 from email.generator import BytesGenerator
-from email.message import EmailMessage
 from email.parser import BytesParser
 from io import BytesIO
 from pathlib import Path
@@ -121,12 +120,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--to-email", default=DEFAULT_TO)
     parser.add_argument("--smtp-host", default=DEFAULT_SMTP_HOST)
     parser.add_argument("--smtp-port", type=int, default=DEFAULT_SMTP_PORT)
-    parser.add_argument("--smtp-username", default=DEFAULT_FROM)
+    # No default here: it follows --from-email below. Defaulting it to the
+    # module-level DEFAULT_FROM meant passing --from-email alone silently kept
+    # logging in as somebody else's account, which surfaces only as an
+    # unhelpful SMTP 535.
+    parser.add_argument("--smtp-username", default=None)
     parser.add_argument("--smtp-password-env", default=DEFAULT_PASSWORD_ENV)
     parser.add_argument("--delay-seconds", type=float, default=1.0)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--dry-run", action="store_true")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.smtp_username is None:
+        args.smtp_username = args.from_email
+    return args
 
 
 def main() -> None:

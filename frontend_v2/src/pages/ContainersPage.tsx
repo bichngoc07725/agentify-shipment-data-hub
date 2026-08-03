@@ -4,6 +4,19 @@ import { Search, Package, AlertTriangle } from 'lucide-react';
 import { api } from '../lib/api';
 import type { ContainerListItem } from '../types/api';
 import { fmtDate, fmtRelative } from '../lib/format';
+import { STAGE_LABELS, STAGE_ORDER } from '../lib/shipmentStage';
+
+function ProgressBadge({ shipment }: { shipment: ContainerListItem['shipment'] }) {
+  if (!shipment) {
+    return <span className="badge badge-neutral">Chưa có job</span>;
+  }
+  const index = STAGE_ORDER.indexOf(shipment.stage);
+  return (
+    <span className={`badge ${shipment.sla_breached ? 'badge-danger' : 'badge-info'}`}>
+      {index + 1}/{STAGE_ORDER.length} · {STAGE_LABELS[shipment.stage]}
+    </span>
+  );
+}
 
 const FILTERS = [
   { id: 'all', label: 'All' },
@@ -125,6 +138,9 @@ export function ContainersPage() {
                   {c.booking_no ? <span>BK: {c.booking_no}</span> : <span style={{ color: 'var(--text-muted)' }}>No booking</span>}
                   {c.bl_no && <span>B/L: {c.bl_no}</span>}
                   {c.pod && <span>→ {c.pod}</span>}
+                </div>
+                <div className="container-row-meta" style={{ marginTop: 4 }}>
+                  <ProgressBadge shipment={c.shipment} />
                 </div>
                 <div className="container-row-meta" style={{ marginTop: 4 }}>
                   {c.status_text && <span style={{ color: 'var(--text-primary)' }}>{c.status_text}</span>}

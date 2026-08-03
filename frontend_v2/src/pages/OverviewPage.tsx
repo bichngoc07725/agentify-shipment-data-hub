@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, Database, Mail, AlertTriangle, ChevronRight, RefreshCw } from 'lucide-react';
 import { api } from '../lib/api';
 import type { AppHomeResponse, ShipmentExceptionListResponse } from '../types/api';
-import { fmtDateTime, fmtRelative, fmtDate } from '../lib/format';
+import { fmtRelative, fmtDate } from '../lib/format';
 
 export function OverviewPage() {
   const navigate = useNavigate();
@@ -35,7 +35,7 @@ export function OverviewPage() {
   const mailbox = home?.connected_mailboxes[0];
 
   return (
-    <div style={{ maxWidth: 960, margin: '0 auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div className="page-container" style={{ gap: 24 }}>
       {/* Page heading */}
       <div>
         <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)' }}>Overview</h1>

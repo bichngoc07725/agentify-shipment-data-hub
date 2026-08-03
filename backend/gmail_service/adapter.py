@@ -186,25 +186,6 @@ def _sanitize_filename(filename: str) -> str:
     return sanitized[:240] or "attachment.pdf"
 
 
-def _build_fact(
-    field_name: str,
-    normalized_value: str,
-    container_no: str | None,
-    result: AttachmentExtractionResult,
-) -> IngestFactRequest:
-    return IngestFactRequest(
-        field_name=field_name,
-        field_value=normalized_value,
-        normalized_value=normalized_value,
-        container_no=container_no,
-        source_type="pdf_text",
-        source_label=result.attachment.filename,
-        document_type=result.record.doc_type,
-        confidence=Decimal(str(result.record.doc_type_confidence)),
-        attachment_filename=result.attachment.filename,
-    )
-
-
 def _build_record_facts(
     record: ExtractedRecord,
     source_type: str,
