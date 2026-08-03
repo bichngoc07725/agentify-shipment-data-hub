@@ -46,6 +46,8 @@ async def preview_manual_ingest(
         },
         matched_containers=matched,
         new_containers=new,
+        link_url=fields.get("link_url"),
+        link_fetch_error=fields.get("link_fetch_error"),
     )
 
 

@@ -207,6 +207,10 @@ class ManualIngestPreviewResponse(BaseModel):
     fields: dict[str, Any] = Field(default_factory=dict)
     matched_containers: list[str] = Field(default_factory=list)
     new_containers: list[str] = Field(default_factory=list)
+    # Set when a link in the pasted text was auto-fetched as the attachment
+    # (or when that fetch failed but text extraction still ran).
+    link_url: str | None = None
+    link_fetch_error: str | None = None
 
 
 class ManualIngestResponse(BaseModel):

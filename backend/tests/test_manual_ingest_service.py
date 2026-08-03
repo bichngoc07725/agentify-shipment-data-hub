@@ -8,11 +8,13 @@ from gmail_service import field_extract
 from gmail_service.models import ExtractedRecord, Identifiers, Route, Source
 from services import manual_ingest_service
 from services.manual_ingest_service import (
+    ResolvedAttachment,
     _subject_from,
     build_facts,
     container_numbers_in,
     extract_from_content,
 )
+from services.url_fetcher import FetchedFile, UrlFetchError
 
 ZALO_MESSAGE = (
     "Ops: Xe 51F-12345 lay cont CSQU3054383 tai Cat Lai, cutoff 14h chieu nay.\n"
@@ -190,6 +192,112 @@ class ImageExtractionTest(unittest.TestCase):
         self.assertEqual(args[2], b"fake-image-bytes")
         self.assertEqual(args[3], "image/jpeg")
         self.assertEqual(fields["identifiers"]["container_no"], ["CSQU3054383"])
+
+
+class LinkExtractionTest(unittest.TestCase):
+    """The 'agent fetches the file itself' path: a vendor drops a link to an
+    invoice/customs doc into the chat, and Agentify downloads and reads it
+    without ops having to save and re-upload it by hand."""
+
+    def test_a_link_in_the_pasted_text_is_fetched_and_read_as_a_pdf(self) -> None:
+        fake_record = ExtractedRecord(
+            source=Source(
+                message_id="zalo-preview",
+                sender="Ops - Nguyen Van A",
+                subject="Group Dieu xe Cat Lai: Anh oi hoa don day https://vendor.example.com/invoice.pdf",
+                received_at="2026-07-25T07:30:00+00:00",
+                attachment_name="invoice.pdf",
+            ),
+            doc_type="invoice",
+            doc_type_confidence=0.9,
+            identifiers=Identifiers(container_no=["CSQU3054383"]),
+            route=Route(),
+            extraction_method="hybrid",
+            extraction_status="ok",
+        )
+        request = make_request(
+            content="Anh oi hoa don day https://vendor.example.com/invoice.pdf"
+        )
+        fetched = FetchedFile(
+            content=b"%PDF-1.4", mime_type="application/pdf", filename="invoice.pdf"
+        )
+
+        with patch.object(
+            manual_ingest_service, "fetch_file_from_url", return_value=fetched
+        ) as mock_fetch, patch.object(
+            manual_ingest_service, "process_pdf_attachment", return_value=fake_record
+        ) as mock_process:
+            fields = extract_from_content(request)
+
+        mock_fetch.assert_called_once_with("https://vendor.example.com/invoice.pdf")
+        mock_process.assert_called_once()
+        self.assertEqual(fields["link_url"], "https://vendor.example.com/invoice.pdf")
+        self.assertEqual(fields["identifiers"]["container_no"], ["CSQU3054383"])
+
+    def test_a_link_that_fails_to_fetch_degrades_to_text_only_extraction(self) -> None:
+        request = make_request(
+            content="Xe 51F-12345 lay cont CSQU3054383, xem anh tai https://vendor.example.com/broken"
+        )
+
+        with patch.object(
+            manual_ingest_service,
+            "fetch_file_from_url",
+            side_effect=UrlFetchError("khong tai duoc"),
+        ):
+            fields = extract_from_content(request)
+
+        self.assertEqual(fields["link_fetch_error"], "khong tai duoc")
+        # The link failed, but the rest of the pasted text still reads fine.
+        self.assertEqual(container_numbers_in(fields), ["CSQU3054383"])
+
+    def test_a_pasted_image_wins_over_a_link_in_the_same_message(self) -> None:
+        request = make_request(
+            content="https://vendor.example.com/invoice.pdf",
+            image_base64=base64.b64encode(b"fake-image-bytes").decode(),
+            image_mime_type="image/jpeg",
+            image_filename="pod.jpg",
+        )
+        fake_record = ExtractedRecord(
+            source=Source(
+                message_id="zalo-preview",
+                sender="Ops - Nguyen Van A",
+                subject="x",
+                received_at="2026-07-25T07:30:00+00:00",
+                attachment_name="pod.jpg",
+            ),
+            doc_type="other",
+            doc_type_confidence=0.5,
+            identifiers=Identifiers(),
+            route=Route(),
+            extraction_method="llm",
+            extraction_status="ok",
+        )
+
+        with patch.object(manual_ingest_service, "fetch_file_from_url") as mock_fetch, patch.object(
+            manual_ingest_service, "process_image_attachment", return_value=fake_record
+        ):
+            extract_from_content(request)
+
+        mock_fetch.assert_not_called()
+
+    def test_link_derived_pdf_attachment_is_recorded_with_pdf_text_provenance(self) -> None:
+        attachment = ResolvedAttachment(
+            content=b"%PDF-1.4",
+            mime_type="application/pdf",
+            filename="invoice.pdf",
+            origin="link",
+            source_url="https://vendor.example.com/invoice.pdf",
+        )
+        fields = {
+            "doc_type": "invoice",
+            "identifiers": {"container_no": ["CSQU3054383"]},
+            "route": {},
+        }
+
+        facts = build_facts(make_request(), fields, attachment)
+
+        self.assertTrue(facts)
+        self.assertTrue(all(fact.source_type == "pdf_text" for fact in facts))
 
 
 if __name__ == "__main__":

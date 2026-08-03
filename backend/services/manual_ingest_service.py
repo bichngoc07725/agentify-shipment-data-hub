@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import base64
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,9 +36,10 @@ from gmail_service.deterministic_extract import (
     find_container_numbers,
 )
 from gmail_service.field_extract import extract_fields
-from gmail_service.pipeline import process_image_attachment
+from gmail_service.pipeline import process_image_attachment, process_pdf_attachment
 from services.aggregation_service import normalize_container_no
 from services.ingestion_service import ingest_processed_email
+from services.url_fetcher import UrlFetchError, fetch_file_from_url, find_first_url
 
 CHANNEL_LABELS = {
     "zalo": "Zalo",
@@ -60,33 +63,108 @@ def _subject_from(content: str, source_label: str | None, channel: str) -> str:
     return subject[:SUBJECT_MAX_CHARS]
 
 
-def _persist_manual_image(image_bytes: bytes, filename: str) -> str:
+def _persist_manual_attachment(content: bytes, filename: str) -> str:
     MANUAL_ATTACHMENT_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     safe_name = "".join(c for c in filename if c.isalnum() or c in "._-") or "pasted.jpg"
     unique_name = f"{uuid.uuid4()}_{safe_name}"
     absolute_path = MANUAL_ATTACHMENT_STORAGE_DIR / unique_name
-    absolute_path.write_bytes(image_bytes)
+    absolute_path.write_bytes(content)
     return absolute_path.relative_to(BACKEND_ROOT).as_posix()
 
 
-def extract_from_content(payload: ManualIngestRequest) -> dict:
-    """Run the normal extraction pipeline over the pasted text and/or image."""
-    subject = _subject_from(payload.content, payload.source_label, payload.channel)
+@dataclass
+class ResolvedAttachment:
+    content: bytes
+    mime_type: str
+    filename: str
+    origin: Literal["pasted_image", "link"]
+    source_url: str | None = None
+
+
+def _resolve_attachment(
+    payload: ManualIngestRequest,
+) -> tuple[ResolvedAttachment | None, str | None]:
+    """At most one attachment feeds extraction: an explicitly pasted image
+    always wins. Otherwise, the first http(s) link found in the pasted text
+    is fetched automatically — e.g. a vendor sharing an invoice link in a
+    Zalo chat, per the product direction that Agentify should go get the file
+    itself rather than making ops re-type it.
+
+    Returns `(attachment, link_fetch_error)`. A failed fetch is not raised —
+    extraction still runs on the pasted text, with the error surfaced to the
+    user so a bad or unsupported link doesn't look like silent data loss.
+    """
     if payload.image_base64:
-        image_bytes = base64.b64decode(payload.image_base64)
-        record = process_image_attachment(
-            {
-                "message_id": f"{payload.channel}-preview",
-                "sender": payload.sender or "",
-                "subject": subject,
-                "received_at": payload.occurred_at or datetime.now(UTC),
-            },
-            payload.image_filename or "pasted-image.jpg",
-            image_bytes,
-            payload.image_mime_type or "image/jpeg",
+        return (
+            ResolvedAttachment(
+                content=base64.b64decode(payload.image_base64),
+                mime_type=payload.image_mime_type or "image/jpeg",
+                filename=payload.image_filename or "pasted-image.jpg",
+                origin="pasted_image",
+            ),
+            None,
         )
-        return record.model_dump(mode="json")
-    return extract_fields(subject, payload.sender or "", payload.content)
+
+    url = find_first_url(payload.content)
+    if not url:
+        return None, None
+
+    try:
+        fetched = fetch_file_from_url(url)
+    except UrlFetchError as exc:
+        return None, str(exc)
+
+    return (
+        ResolvedAttachment(
+            content=fetched.content,
+            mime_type=fetched.mime_type,
+            filename=fetched.filename,
+            origin="link",
+            source_url=url,
+        ),
+        None,
+    )
+
+
+def _extraction_email(payload: ManualIngestRequest, subject: str) -> dict:
+    return {
+        "message_id": f"{payload.channel}-preview",
+        "sender": payload.sender or "",
+        "subject": subject,
+        "received_at": payload.occurred_at or datetime.now(UTC),
+    }
+
+
+def _extract(
+    payload: ManualIngestRequest,
+    attachment: ResolvedAttachment | None,
+    link_error: str | None,
+) -> dict:
+    subject = _subject_from(payload.content, payload.source_label, payload.channel)
+    if attachment is None:
+        fields = extract_fields(subject, payload.sender or "", payload.content)
+        if link_error:
+            fields["link_fetch_error"] = link_error
+        return fields
+
+    email = _extraction_email(payload, subject)
+    if attachment.mime_type == "application/pdf":
+        record = process_pdf_attachment(email, attachment.filename, attachment.content)
+    else:
+        record = process_image_attachment(
+            email, attachment.filename, attachment.content, attachment.mime_type
+        )
+    fields = record.model_dump(mode="json")
+    if attachment.origin == "link":
+        fields["link_url"] = attachment.source_url
+    return fields
+
+
+def extract_from_content(payload: ManualIngestRequest) -> dict:
+    """Run the normal extraction pipeline over the pasted text, a pasted
+    image, or a file fetched from a link found in the pasted text."""
+    attachment, link_error = _resolve_attachment(payload)
+    return _extract(payload, attachment, link_error)
 
 
 def container_numbers_in(fields: dict) -> list[str]:
@@ -149,7 +227,7 @@ def segment_by_container(content: str) -> list[tuple[str, str]]:
 
 
 def _fields_per_container(
-    payload: ManualIngestRequest, fields: dict
+    payload: ManualIngestRequest, fields: dict, attachment: ResolvedAttachment | None
 ) -> list[tuple[str, dict, str]]:
     """Trả `(container_no, fields của riêng nó, status_text của riêng nó)`.
 
@@ -164,10 +242,10 @@ def _fields_per_container(
     """
     container_nos = container_numbers_in(fields)
     unique_nos = list(dict.fromkeys(container_nos))
-    image_only_fallback = "Ảnh đính kèm" if payload.image_base64 else ""
+    no_text_fallback = _attachment_fallback_text(attachment)
     if len(unique_nos) <= 1:
         return [
-            (no, fields, _first_line(payload.content, image_only_fallback))
+            (no, fields, _first_line(payload.content, no_text_fallback))
             for no in unique_nos
         ]
 
@@ -189,13 +267,31 @@ def _fields_per_container(
     return per_container
 
 
-def build_facts(payload: ManualIngestRequest, fields: dict) -> list[IngestFactRequest]:
+def _attachment_fallback_text(attachment: ResolvedAttachment | None) -> str:
+    """Status text when there's no line of the message's own to read — only
+    possible when an attachment (pasted image or link-fetched file) is what
+    actually carried the content."""
+    if attachment is None:
+        return ""
+    return "Ảnh đính kèm" if attachment.mime_type.startswith("image/") else "File đính kèm"
+
+
+def build_facts(
+    payload: ManualIngestRequest,
+    fields: dict,
+    attachment: ResolvedAttachment | None = None,
+) -> list[IngestFactRequest]:
     """Turn extracted fields into facts, one per container mentioned."""
     document_type = fields.get("doc_type")
     source_label = payload.source_label or CHANNEL_LABELS.get(
         payload.channel, payload.channel
     )
-    source_type = "image_vision" if payload.image_base64 else f"{payload.channel}_message"
+    if attachment is not None:
+        source_type = "image_vision" if attachment.mime_type.startswith("image/") else "pdf_text"
+    elif payload.image_base64:
+        source_type = "image_vision"
+    else:
+        source_type = f"{payload.channel}_message"
 
     facts: list[IngestFactRequest] = []
 
@@ -215,7 +311,7 @@ def build_facts(payload: ManualIngestRequest, fields: dict) -> list[IngestFactRe
             )
         )
 
-    scoped = _fields_per_container(payload, fields)
+    scoped = _fields_per_container(payload, fields, attachment)
 
     for container_no, _, _ in scoped:
         add("container_no", container_no, container_no)
@@ -250,8 +346,8 @@ def _first_line(content: str, fallback: str = "") -> str:
     từ đúng đoạn của nó — dùng chung dòng đầu của cả tin thì seal/ETA của
     container này bị gán sang container khác.
 
-    `fallback` để caller truyền "Ảnh đính kèm" khi tin chỉ có ảnh không có chữ,
-    lúc đó không có dòng nào để lấy.
+    `fallback` để caller truyền "Ảnh đính kèm"/"File đính kèm" khi tin chỉ có
+    tệp đính kèm không có chữ, lúc đó không có dòng nào để lấy.
     """
     first_line = next(
         (line.strip() for line in content.splitlines() if line.strip()), ""
@@ -262,21 +358,24 @@ def _first_line(content: str, fallback: str = "") -> str:
 
 
 async def ingest_manual_content(db: AsyncSession, payload: ManualIngestRequest) -> dict:
-    fields = extract_from_content(payload)
-    facts = build_facts(payload, fields)
+    attachment, link_error = _resolve_attachment(payload)
+    fields = _extract(payload, attachment, link_error)
+    facts = build_facts(payload, fields, attachment)
     occurred_at = payload.occurred_at or datetime.now(UTC)
 
     attachments: list[IngestAttachmentRequest] = []
-    if payload.image_base64:
-        image_bytes = base64.b64decode(payload.image_base64)
-        filename = payload.image_filename or "pasted-image.jpg"
+    if attachment is not None:
+        is_text_pdf = (
+            attachment.mime_type == "application/pdf"
+            and fields.get("extraction_status") == "ok"
+        )
         attachments.append(
             IngestAttachmentRequest(
-                filename=filename,
-                mime_type=payload.image_mime_type or "image/jpeg",
-                size_bytes=len(image_bytes),
-                storage_path=_persist_manual_image(image_bytes, filename),
-                is_text_pdf=False,
+                filename=attachment.filename,
+                mime_type=attachment.mime_type,
+                size_bytes=len(attachment.content),
+                storage_path=_persist_manual_attachment(attachment.content, attachment.filename),
+                is_text_pdf=is_text_pdf,
                 text_extract_status=(
                     "extracted" if fields.get("extraction_status") == "ok" else "failed"
                 ),

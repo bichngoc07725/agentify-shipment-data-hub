@@ -149,6 +149,8 @@ export interface ManualIngestPreview {
   };
   matched_containers: string[];
   new_containers: string[];
+  link_url: string | null;
+  link_fetch_error: string | null;
 }
 
 export interface ManualIngestResult {

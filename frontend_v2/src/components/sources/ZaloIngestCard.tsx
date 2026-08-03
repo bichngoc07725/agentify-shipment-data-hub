@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { ClipboardEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle, Image as ImageIcon, Lock, Search, Send, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Image as ImageIcon, Link2, Lock, Search, Send, X } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { canCreateManualIngest, ROLE_LABELS } from '../../lib/permissions';
@@ -195,7 +195,7 @@ export function ZaloIngestCard({ onIngested }: { onIngested?: () => void }) {
           onChange={e => { setContent(e.target.value); reset(); }}
           onPaste={handlePaste}
           rows={5}
-          placeholder="Dán tin nhắn Zalo vào đây… (dán được cả ảnh, vd. ảnh chụp POD/EIR/container)"
+          placeholder="Dán tin nhắn Zalo vào đây… (dán được cả ảnh, vd. ảnh chụp POD/EIR/container. Nếu tin có link tới file PDF/ảnh, Agentify tự tải về và đọc)"
           style={{ resize: 'vertical', fontFamily: 'var(--font-ui)', lineHeight: 1.6 }}
         />
         <p className="form-helper">
@@ -260,6 +260,23 @@ export function ZaloIngestCard({ onIngested }: { onIngested?: () => void }) {
 
       {preview && (
         <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {preview.link_url && (
+            <div className="banner banner-info">
+              <Link2 size={15} style={{ flexShrink: 0 }} />
+              <div style={{ overflowWrap: 'anywhere' }}>
+                Đã tự tải file từ link và đọc bằng AI: <span className="mono">{preview.link_url}</span>
+              </div>
+            </div>
+          )}
+          {preview.link_fetch_error && (
+            <div className="banner banner-warning">
+              <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+              <div>
+                Có link trong tin nhắn nhưng không tải được file ({preview.link_fetch_error}) — vẫn đọc
+                phần chữ như bình thường.
+              </div>
+            </div>
+          )}
           {preview.container_nos.length === 0 ? (
             <div className="banner banner-warning">
               <AlertTriangle size={15} style={{ flexShrink: 0 }} />
