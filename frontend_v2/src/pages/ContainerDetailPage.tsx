@@ -391,7 +391,7 @@ export function ContainerDetailPage() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <Scale size={13} style={{ color: 'var(--text-muted)' }} />
-                      <span style={{ fontSize: 13 }}>Baseline <span className="mono">{rec.quote_no}</span></span>
+                      <span style={{ fontSize: 13 }}>So với báo giá <span className="mono">{rec.quote_no}</span></span>
                       <span
                         className={`badge ${
                           rec.status === 'escalated' ? 'badge-danger'
@@ -530,7 +530,7 @@ export function ContainerDetailPage() {
 
       {/* Summary facts */}
       <section>
-        <h2 style={SECTION_HEADING}>Identifiers</h2>
+        <h2 style={SECTION_HEADING}>Số chứng từ</h2>
         <div className="fact-grid">
           <FactCell label="Booking" field="booking_no" />
           <FactCell label="B/L" field="bl_no" />
@@ -541,17 +541,17 @@ export function ContainerDetailPage() {
       </section>
 
       <section>
-        <h2 style={SECTION_HEADING}>Route</h2>
+        <h2 style={SECTION_HEADING}>Tuyến vận chuyển</h2>
         <div className="fact-grid">
           <FactCell label="POL" field="pol" monoVal={false} />
           <FactCell label="POD" field="pod" monoVal={false} />
-          <FactCell label="Vessel" field="vessel" monoVal={false} />
-          <FactCell label="Voyage" field="voyage" />
+          <FactCell label="Tàu" field="vessel" monoVal={false} />
+          <FactCell label="Chuyến tàu" field="voyage" />
         </div>
       </section>
 
       <section>
-        <h2 style={SECTION_HEADING}>Schedule &amp; free time</h2>
+        <h2 style={SECTION_HEADING}>Lịch trình &amp; free time</h2>
         <div className="fact-grid">
           <FactCell label="ETD" field="etd" monoVal={false} />
           <FactCell label="ETA" field="eta" monoVal={false} />

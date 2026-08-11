@@ -49,12 +49,12 @@ export function syncStatusLabel(status: string): { label: string; cls: string } 
 
 export function emailStatusLabel(status: string): { label: string; cls: string } {
   switch (status) {
-    case 'synced': return { label: 'Synced', cls: 'badge-neutral' };
-    case 'parsed': return { label: 'Parsed', cls: 'badge-info' };
-    case 'extracted': return { label: 'Extracted', cls: 'badge-success' };
-    case 'no_container_found': return { label: 'No container', cls: 'badge-warning' };
-    case 'unsupported_pdf': return { label: 'Unsupported PDF', cls: 'badge-warning' };
-    case 'failed': return { label: 'Failed', cls: 'badge-danger' };
+    case 'synced': return { label: 'Đã đồng bộ', cls: 'badge-neutral' };
+    case 'parsed': return { label: 'Đã phân tích', cls: 'badge-info' };
+    case 'extracted': return { label: 'Đã trích xuất', cls: 'badge-success' };
+    case 'no_container_found': return { label: 'Không có container', cls: 'badge-warning' };
+    case 'unsupported_pdf': return { label: 'PDF không hỗ trợ', cls: 'badge-warning' };
+    case 'failed': return { label: 'Thất bại', cls: 'badge-danger' };
     default: return { label: status, cls: 'badge-neutral' };
   }
 }

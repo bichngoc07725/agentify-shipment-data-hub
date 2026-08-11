@@ -16,14 +16,14 @@ import type { AppHomeResponse } from '../../types/api';
 const NAV = [
   // The four fleet-wide pages below all 403 for Driver on the backend, so
   // they are hidden rather than shown-and-broken.
-  { to: '/', label: 'Overview', icon: LayoutDashboard, end: true, requiresFleetAccess: true },
-  { to: '/exceptions', label: 'Exceptions', icon: TriangleAlert, requiresFleetAccess: true },
-  { to: '/containers', label: 'Containers', icon: Package, requiresFleetAccess: true },
-  { to: '/quotes', label: 'Quotes', icon: FileText, requiresQuoteAccess: true },
-  { to: '/reconciliation', label: 'Reconciliation', icon: Scale, requiresCostDataAccess: true },
-  { to: '/kanban', label: 'Kanban', icon: Kanban, requiresShipmentAccess: true },
-  { to: '/audit', label: 'Audit Log', icon: ShieldCheck, requiresAuditAccess: true },
-  { to: '/emails', label: 'Emails', icon: Mail, requiresFleetAccess: true },
+  { to: '/', label: 'Tổng quan', icon: LayoutDashboard, end: true, requiresFleetAccess: true },
+  { to: '/exceptions', label: 'Ngoại lệ', icon: TriangleAlert, requiresFleetAccess: true },
+  { to: '/containers', label: 'Container', icon: Package, requiresFleetAccess: true },
+  { to: '/quotes', label: 'Báo giá', icon: FileText, requiresQuoteAccess: true },
+  { to: '/reconciliation', label: 'Đối soát', icon: Scale, requiresCostDataAccess: true },
+  { to: '/kanban', label: 'Kanban lô hàng', icon: Kanban, requiresShipmentAccess: true },
+  { to: '/audit', label: 'Nhật ký thao tác', icon: ShieldCheck, requiresAuditAccess: true },
+  { to: '/emails', label: 'Email', icon: Mail, requiresFleetAccess: true },
   // Gated by the same `field_image.create` check as the route itself, so a
   // Driver always has at least this one working entry point.
   { to: '/field-images', label: 'Ảnh hiện trường', icon: Camera, requiresFieldImageUpload: true },
@@ -35,7 +35,7 @@ const NAV = [
 const SYSTEM_NAV = [
   // Data Sources hosts both Gmail admin (system_config) and the Zalo paste
   // card (manual_ingest) — visible if the role can do either.
-  { to: '/setup', label: 'Data Sources', icon: Settings, requiresDataSourceAccess: true },
+  { to: '/setup', label: 'Nguồn dữ liệu', icon: Settings, requiresDataSourceAccess: true },
   { to: '/admin/users', label: 'Quản lý người dùng', icon: Users, requiresUserManagementAccess: true },
   { to: '/admin/permissions', label: 'Ma trận quyền', icon: KeyRound, requiresUserManagementAccess: true },
 ];

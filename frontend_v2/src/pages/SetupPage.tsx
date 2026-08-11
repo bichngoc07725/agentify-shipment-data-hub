@@ -216,12 +216,12 @@ export function SetupPage() {
         /* Not connected */
         <div className="connection-panel">
           <div className="gmail-logo">📧</div>
-          <h2 style={{ fontSize: 20, marginBottom: 8 }}>Connect Gmail</h2>
+          <h2 style={{ fontSize: 20, marginBottom: 8 }}>Kết nối Gmail</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 6, lineHeight: 1.6 }}>
-            Kết nối Gmail để Agentify đọc email và attachment liên quan đến logistics.
+            Kết nối Gmail để Agentify đọc email và tệp đính kèm liên quan đến logistics.
           </p>
           <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
-            Quyền truy cập: <strong>Read email and attachments only.</strong><br />
+            Quyền truy cập: <strong>Chỉ đọc email và tệp đính kèm.</strong><br />
             Agentify không gửi, sửa hoặc xóa email.
           </p>
           <button
@@ -231,7 +231,7 @@ export function SetupPage() {
             style={{ width: '100%', justifyContent: 'center', gap: 8, height: 44 }}
           >
             <Mail size={16} />
-            {oauthLoading ? 'Đang chuyển hướng…' : 'Continue with Google'}
+            {oauthLoading ? 'Đang chuyển hướng…' : 'Tiếp tục với Google'}
           </button>
         </div>
       ) : mainConn && (
@@ -254,10 +254,10 @@ export function SetupPage() {
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 500 }}>{conn.account_email}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                    Read-only · Last sync: {fmtRelative(conn.last_synced_at)}
+                    Chỉ đọc · Đồng bộ gần nhất: {fmtRelative(conn.last_synced_at)}
                   </div>
                 </div>
-                <span className="badge badge-success"><CheckCircle size={11} style={{ marginRight: 4 }} /> Connected</span>
+                <span className="badge badge-success"><CheckCircle size={11} style={{ marginRight: 4 }} /> Đã kết nối</span>
               </div>
               {/* Thao tác gắn với `conn` của vòng lặp, không phải `mainConn` —
                   nếu không thì có nhiều hộp thư, mọi nút đều tác động lên
@@ -301,7 +301,7 @@ export function SetupPage() {
                   <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />
                   Sync đang chạy
                 </h2>
-                <span className="badge badge-info">{activeJob.status}</span>
+                <span className="badge badge-info">{syncStatusLabel(activeJob.status).label}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
                 <div>Bắt đầu: {fmtDateTime(activeJob.started_at)}</div>
@@ -313,10 +313,10 @@ export function SetupPage() {
 
           {/* Sync form */}
           <div className="card">
-            <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>Sync configuration</h2>
+            <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>Cấu hình đồng bộ</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div className="form-group">
-                <label className="form-label" htmlFor="sync-mailbox">Mailbox</label>
+                <label className="form-label" htmlFor="sync-mailbox">Hộp thư</label>
                 <select
                   id="sync-mailbox"
                   className="form-input"
@@ -329,7 +329,7 @@ export function SetupPage() {
                 </select>
               </div>
               <div className="form-group">
-                <label className="form-label" htmlFor="sync-query">Gmail query</label>
+                <label className="form-label" htmlFor="sync-query">Truy vấn Gmail</label>
                 <input
                   id="sync-query"
                   className="form-input"
@@ -340,7 +340,7 @@ export function SetupPage() {
                 <p className="form-helper">Ví dụ: <code>newer_than:30d</code>, <code>subject:booking</code>, <code>has:attachment</code></p>
               </div>
               <div className="form-group">
-                <label className="form-label" htmlFor="sync-max">Maximum emails</label>
+                <label className="form-label" htmlFor="sync-max">Số email tối đa</label>
                 <input
                   id="sync-max"
                   className="form-input"
@@ -358,18 +358,18 @@ export function SetupPage() {
                 disabled={syncLoading || !!(activeJob && (activeJob.status === 'running' || activeJob.status === 'pending'))}
                 style={{ alignSelf: 'flex-start', minWidth: 120 }}
               >
-                {syncLoading ? 'Đang tạo…' : 'Start sync'}
+                {syncLoading ? 'Đang tạo…' : 'Bắt đầu đồng bộ'}
               </button>
             </div>
           </div>
 
           {/* Sync history */}
           <div>
-            <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Sync history</h2>
+            <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Lịch sử đồng bộ</h2>
             {jobs.length === 0 ? (
               <div className="card">
                 <div className="empty-state" style={{ padding: '24px 16px' }}>
-                  <p>Chưa có sync job nào. Bấm "Start sync" để bắt đầu.</p>
+                  <p>Chưa có lần đồng bộ nào. Bấm "Bắt đầu đồng bộ" để bắt đầu.</p>
                 </div>
               </div>
             ) : (
@@ -377,7 +377,7 @@ export function SetupPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: 'var(--bg-app)', borderBottom: '1px solid var(--border-subtle)' }}>
-                      {['Started', 'Query', 'Status', 'Emails', 'Containers'].map(h => (
+                      {['Bắt đầu', 'Truy vấn', 'Trạng thái', 'Email', 'Container'].map(h => (
                         <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 500, color: 'var(--text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr>

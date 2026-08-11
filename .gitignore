@@ -37,6 +37,7 @@ demo_email/
 # Runtime attachment storage — file người dùng upload/sync, không phải source
 backend/storage/gmail_attachments/
 backend/storage/field_images/
+backend/storage/manual_attachments/
 
 # Scratch output của Playwright MCP (screenshot + console log)
 .playwright-mcp/

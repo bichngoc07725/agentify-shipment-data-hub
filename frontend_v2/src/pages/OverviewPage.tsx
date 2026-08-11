@@ -38,7 +38,7 @@ export function OverviewPage() {
     <div className="page-container" style={{ gap: 24 }}>
       {/* Page heading */}
       <div>
-        <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)' }}>Overview</h1>
+        <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)' }}>Tổng quan</h1>
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 4 }}>
           Tra cứu container, booking, B/L hoặc PO từ email và PDF đã sync.
         </p>
@@ -70,7 +70,7 @@ export function OverviewPage() {
           <div style={{ flex: 1 }}>
             <strong>Chưa kết nối Gmail.</strong> Kết nối Gmail để bắt đầu đồng bộ email và PDF vào Agentify.
           </div>
-          <Link to="/setup" className="btn btn-primary btn-sm">Connect Gmail</Link>
+          <Link to="/setup" className="btn btn-primary btn-sm">Kết nối Gmail</Link>
         </div>
       )}
 
@@ -104,21 +104,21 @@ export function OverviewPage() {
             <span className="status-strip-label">Gmail</span>
             <span className="status-strip-value" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span className={`status-dot ${mailbox ? 'connected' : 'disconnected'}`} />
-              {mailbox ? 'Connected' : 'Not connected'}
+              {mailbox ? 'Đã kết nối' : 'Chưa kết nối'}
             </span>
           </div>
           <div className="status-strip-item">
-            <span className="status-strip-label">Last sync</span>
+            <span className="status-strip-label">Đồng bộ gần nhất</span>
             <span className="status-strip-value">{fmtRelative(home?.last_sync_at)}</span>
           </div>
           <div className="status-strip-item">
-            <span className="status-strip-label">Containers found</span>
+            <span className="status-strip-label">Số container tìm thấy</span>
             <span className="status-strip-value">{loading ? '…' : (home?.container_count ?? 0)}</span>
           </div>
           <div className="status-strip-item" style={{ flexShrink: 0 }}>
             <span className="status-strip-label">&nbsp;</span>
             <Link to="/setup" style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <RefreshCw size={13} /> Sync
+              <RefreshCw size={13} /> Đồng bộ
             </Link>
           </div>
         </div>
@@ -238,7 +238,7 @@ function RecentEmails() {
   if (!items.length) return (
     <div className="card">
       <div className="empty-state" style={{ padding: '32px 16px' }}>
-        <p>No synced emails yet. Kết nối Gmail và sync để email xuất hiện.</p>
+        <p>Chưa có email nào được đồng bộ. Kết nối Gmail và sync để email xuất hiện.</p>
         <Link to="/setup" className="btn btn-primary btn-sm" style={{ marginTop: 12 }}>Connect Gmail</Link>
       </div>
     </div>

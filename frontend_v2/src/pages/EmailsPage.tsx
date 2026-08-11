@@ -51,7 +51,7 @@ export function EmailsPage() {
       <div className="split-list" style={{ width: 440 }}>
         <div className="split-list-header">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h1 style={{ fontSize: 16, fontWeight: 600 }}>Emails</h1>
+            <h1 style={{ fontSize: 16, fontWeight: 600 }}>Email</h1>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{total} tổng</span>
           </div>
           <div className="toolbar-search" style={{ maxWidth: '100%', height: 34 }}>

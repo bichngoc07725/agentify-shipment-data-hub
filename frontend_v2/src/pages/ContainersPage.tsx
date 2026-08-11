@@ -67,7 +67,7 @@ export function ContainersPage() {
       <div className="split-list">
         <div className="split-list-header">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h1 style={{ fontSize: 16, fontWeight: 600 }}>Containers</h1>
+            <h1 style={{ fontSize: 16, fontWeight: 600 }}>Container</h1>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{total} tổng</span>
           </div>
           <form onSubmit={handleSearch}>
