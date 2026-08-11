@@ -30,6 +30,16 @@ async function req<T>(path: string, opts?: RequestInit): Promise<T> {
     try {
       const parsed = JSON.parse(text);
       if (typeof parsed?.detail === 'string') message = parsed.detail;
+      // The global validation handler (`api/routes/api_main.py`) always
+      // sends `detail: "Validation error"` — a useless banner on its own —
+      // plus a per-field `errors` array with the real reason. Fold that in,
+      // or the user has no way to tell which field actually failed.
+      if (Array.isArray(parsed?.errors) && parsed.errors.length > 0) {
+        const fields = parsed.errors
+          .map((e: { field?: string; message?: string }) => `${e.field ?? '?'}: ${e.message ?? ''}`)
+          .join('; ');
+        message = `${message} (${fields})`;
+      }
     } catch {
       // Not JSON (e.g. a plain-text 500) — fall back to the raw text above.
     }

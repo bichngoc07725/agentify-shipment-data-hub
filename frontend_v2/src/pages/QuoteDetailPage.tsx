@@ -66,12 +66,12 @@ const EMPTY_FORM: QuoteInput = {
   is_reefer: false,
   container_type: '',
   container_qty: null,
-  gross_weight_kg: '',
-  cargo_ready_date: '',
+  gross_weight_kg: null,
+  cargo_ready_date: null,
   incoterm: '',
   payment_term: '',
   transit_time: '',
-  valid_until: '',
+  valid_until: null,
   note: '',
   currency: 'USD',
   container_no: '',
@@ -288,7 +288,7 @@ export function QuoteDetailPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
         <div className="form-group">
           <label className="form-label">Cargo ready date</label>
-          <input type="date" className="form-input" value={form.cargo_ready_date ?? ''} onChange={e => updateField('cargo_ready_date', e.target.value)} disabled={readOnly} />
+          <input type="date" className="form-input" value={form.cargo_ready_date ?? ''} onChange={e => updateField('cargo_ready_date', e.target.value || null)} disabled={readOnly} />
         </div>
         <div className="form-group">
           <label className="form-label">Incoterm</label>
@@ -296,7 +296,7 @@ export function QuoteDetailPage() {
         </div>
         <div className="form-group">
           <label className="form-label">Hiệu lực đến</label>
-          <input type="date" className="form-input" value={form.valid_until ?? ''} onChange={e => updateField('valid_until', e.target.value)} disabled={readOnly} />
+          <input type="date" className="form-input" value={form.valid_until ?? ''} onChange={e => updateField('valid_until', e.target.value || null)} disabled={readOnly} />
         </div>
       </div>
 
