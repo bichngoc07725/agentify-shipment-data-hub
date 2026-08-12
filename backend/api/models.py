@@ -660,6 +660,57 @@ class CustomsDeclarationListResponse(BaseModel):
     total: int
 
 
+class QuoteDraftFields(BaseModel):
+    """Các ô của form báo giá mà hệ thống rút được từ email. Mọi ô đều có thể
+    vắng — vắng nghĩa là không tìm thấy trong email, không phải bằng 0."""
+
+    customer_name: str | None = None
+    pol: str | None = None
+    pod: str | None = None
+    commodity: str | None = None
+    container_type: str | None = None
+    container_qty: int | None = None
+    gross_weight_kg: Decimal | None = None
+    incoterm: str | None = None
+    payment_term: str | None = None
+
+
+class QuoteDraftResponse(BaseModel):
+    source_email_id: UUID
+    source_subject: str | None
+    source_from: str | None
+    fields: QuoteDraftFields
+    # Tên các ô thực sự rút được, để giao diện nói rõ "đã điền N trường" thay vì
+    # để người dùng tự dò xem máy đã đụng vào đâu.
+    fields_found: list[str]
+    extraction_error: str | None = None
+
+
+class ComposedMailResponse(BaseModel):
+    """Nội dung thư soạn sẵn. Agentify không gửi — người dùng bấm gửi trong hộp
+    thư của chính họ, nên phản hồi chỉ có tiêu đề và thân thư."""
+
+    subject: str
+    body: str
+
+
+class ChargeDraftLine(BaseModel):
+    charge_group: Literal["ocean_freight", "surcharge", "local"]
+    charge_code: str
+    description: str
+    unit_price: str
+    currency: str
+    quantity: str
+
+
+class ChargeDraftResponse(BaseModel):
+    source_email_id: UUID
+    source_subject: str | None
+    source_from: str | None
+    charges: list[ChargeDraftLine]
+    extraction_error: str | None = None
+
+
 class ShipmentCreateRequest(BaseModel):
     customer_name: str | None = None
     direction: Literal["import", "export"] | None = None

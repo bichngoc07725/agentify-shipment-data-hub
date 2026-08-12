@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { ChevronLeft, Paperclip, AlertTriangle, FileText } from 'lucide-react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { ChevronLeft, Paperclip, AlertTriangle, FileText, FilePlus2 } from 'lucide-react';
 import { api } from '../lib/api';
+import { useAuth } from '../lib/auth';
+import { canManageQuote } from '../lib/permissions';
 import type { EmailDetail, EmailAttachment } from '../types/api';
 import { fmtDateTime, fmtBytes, emailStatusLabel } from '../lib/format';
 import { CHANNEL_BADGE, CHANNEL_LABELS, factSourceLabel } from '../lib/channels';
@@ -13,6 +15,26 @@ export function EmailDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeAttachment, setActiveAttachment] = useState<EmailAttachment | null>(null);
   const [showCc, setShowCc] = useState(false);
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [draftBusy, setDraftBusy] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+
+  // Bước 1: dựng báo giá thẳng từ thư hỏi giá. Bóc lại nội dung email theo
+  // yêu cầu vì mail hỏi giá chưa có container, nên `container_facts` không
+  // giữ lại gì — xem `services/quote_draft_service.py`.
+  async function createQuoteFromEmail() {
+    if (!id) return;
+    setDraftBusy(true); setDraftError(null);
+    try {
+      const draft = await api.getQuoteDraftFromEmail(id);
+      navigate('/quotes/new', { state: { draft } });
+    } catch (e: unknown) {
+      setDraftError(e instanceof Error ? e.message : 'Không đọc được email để dựng báo giá');
+    } finally {
+      setDraftBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!id) return;
@@ -78,6 +100,17 @@ export function EmailDetailPage() {
             <span className={`badge ${cls}`}>{label}</span>
             {detail.email.has_pdf_attachments && <span className="badge badge-neutral"><Paperclip size={10} style={{ marginRight: 4 }} /> {detail.attachments.length} attachment</span>}
           </div>
+
+          {canManageQuote(user?.role) && (
+            <div style={{ marginTop: 12 }}>
+              <button className="btn btn-secondary btn-sm" onClick={createQuoteFromEmail} disabled={draftBusy}>
+                <FilePlus2 size={14} /> {draftBusy ? 'Đang đọc email…' : 'Tạo báo giá từ email này'}
+              </button>
+              {draftError && (
+                <div style={{ color: 'var(--danger)', fontSize: 12, marginTop: 6 }}>{draftError}</div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Email body */}

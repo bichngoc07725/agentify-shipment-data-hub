@@ -434,6 +434,53 @@ export interface CustomsDeclarationListResponse {
   total: number;
 }
 
+/** Bản nháp báo giá rút từ một email hỏi giá. Ô vắng = không tìm thấy trong
+ *  email, không phải bằng rỗng. */
+export interface QuoteDraftFields {
+  customer_name?: string | null;
+  pol?: string | null;
+  pod?: string | null;
+  commodity?: string | null;
+  container_type?: string | null;
+  container_qty?: number | null;
+  gross_weight_kg?: string | null;
+  incoterm?: string | null;
+  payment_term?: string | null;
+}
+
+export interface QuoteDraft {
+  source_email_id: string;
+  source_subject: string | null;
+  source_from: string | null;
+  fields: QuoteDraftFields;
+  fields_found: string[];
+  extraction_error: string | null;
+}
+
+/** Thư soạn sẵn. Agentify không gửi — người dùng bấm gửi trong hộp thư của họ. */
+export interface ComposedMail {
+  subject: string;
+  body: string;
+}
+
+export interface ChargeDraftLine {
+  charge_group: ChargeGroup;
+  charge_code: string;
+  description: string;
+  unit_price: string;
+  currency: string;
+  quantity: string;
+}
+
+export interface ChargeDraft {
+  source_email_id: string;
+  source_subject: string | null;
+  source_from: string | null;
+  charges: ChargeDraftLine[];
+  extraction_error: string | null;
+}
+
+
 export type ShipmentStage =
   | 'rfq'
   | 'booking'

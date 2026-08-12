@@ -49,7 +49,8 @@ function qs(p: Record<string, unknown>): string {
 }
 
 import type {
-  AdminUser, AdminUserListResponse, AppHomeResponse, AuditLogListResponse, ContainerDetailResponse,
+  AdminUser, AdminUserListResponse, AppHomeResponse, AuditLogListResponse,
+  ContainerDetailResponse,
   ContainerFact, ContainerFactsResponse, ContainerListResponse, ContainerRiskProfile, CustomsDeclaration,
   CustomsDeclarationListResponse, DebitNote, DebitNoteInput, DebitNoteListResponse,
   EmailDetail, EmailListResponse,
@@ -57,6 +58,7 @@ import type {
   GmailConnection, HealthResponse, LoginRequest, LoginResponse,
   ManualIngestPreview, ManualIngestRequest,
   ManualIngestResult, PermissionMatrixResponse, Quote, QuoteInput, QuoteListResponse,
+  ChargeDraft, ComposedMail, QuoteDraft,
   Reconciliation, ReconciliationListResponse, Shipment, ShipmentBoardResponse, ShipmentStage,
   ShipmentExceptionListResponse, ShipmentListResponse,
   SyncJob, SyncJobListResponse,
@@ -183,6 +185,14 @@ export const api = {
     req<CustomsDeclaration>(`/api/v1/customs/declarations/${encodeURIComponent(id)}`),
   getContainerCustoms: (no: string) =>
     req<CustomsDeclarationListResponse>(`/api/v1/containers/${encodeURIComponent(no)}/customs`),
+  getQuoteDraftFromEmail: (emailId: string) =>
+    req<QuoteDraft>(`/api/v1/emails/${encodeURIComponent(emailId)}/quote-draft`),
+  getChargeDraftFromEmail: (emailId: string) =>
+    req<ChargeDraft>(`/api/v1/emails/${encodeURIComponent(emailId)}/charge-draft`),
+  getRateRequestMail: (quoteId: string) =>
+    req<ComposedMail>(`/api/v1/quotes/${encodeURIComponent(quoteId)}/rate-request-mail`),
+  getCustomerQuoteMail: (quoteId: string) =>
+    req<ComposedMail>(`/api/v1/quotes/${encodeURIComponent(quoteId)}/customer-mail`),
   createShipment: (body: {
     customer_name?: string;
     direction?: string;
