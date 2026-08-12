@@ -3,9 +3,10 @@ import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { AlertTriangle, ChevronLeft, Plus, Trash2, Pencil, Save, X, Sparkles, Mail, Send, Download } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { canManageQuote } from '../lib/permissions';
+import { canManageQuote, canViewBooking } from '../lib/permissions';
 import type { ChargeGroup, ComposedMail, EmailListItem, Quote, QuoteChargeInput, QuoteDraft, QuoteInput, QuoteStatus } from '../types/api';
 import { MailComposerCard } from '../components/MailComposerCard';
+import { BookingCard } from '../components/BookingCard';
 import { fmtDate } from '../lib/format';
 
 const CHARGE_GROUPS: { id: ChargeGroup; label: string; hint: string }[] = [
@@ -493,6 +494,12 @@ export function QuoteDetailPage() {
             </div>
           )}
         </section>
+      )}
+
+      {/* Bước 2 bắt đầu ngay trên báo giá, không phải trên trang container:
+          lúc đi đặt chỗ thì hãng tàu chưa cấp container nào. */}
+      {!isNew && quoteId && canViewBooking(user?.role) && (
+        <BookingCard quoteId={quoteId} role={user?.role} />
       )}
 
       {/* Charges — 3 blocks per BA Spec Bước 1 Luồng C */}
