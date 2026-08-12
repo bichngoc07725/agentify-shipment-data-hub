@@ -254,15 +254,49 @@ export function SetupPage() {
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 500 }}>{conn.account_email}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                    Read-only · Last sync: {fmtRelative(conn.last_synced_at)}
+                    Chỉ đọc · Đồng bộ gần nhất: {fmtRelative(conn.last_synced_at)}
                   </div>
                 </div>
-                <span className="badge badge-success"><CheckCircle size={11} style={{ marginRight: 4 }} /> Connected</span>
+                {/* Trạng thái thật, không phải huy hiệu xanh cố định. Một kết
+                    nối đã hết hạn mà vẫn hiện "Đã kết nối" khiến người dùng đi
+                    tìm nguyên nhân ở mọi chỗ trừ chỗ đúng. */}
+                {conn.status === 'expired' ? (
+                  <span className="badge badge-danger">
+                    <AlertTriangle size={11} style={{ marginRight: 4 }} /> Hết hạn kết nối
+                  </span>
+                ) : conn.status === 'disconnected' ? (
+                  <span className="badge badge-neutral">Đã ngắt kết nối</span>
+                ) : (
+                  <span className="badge badge-success">
+                    <CheckCircle size={11} style={{ marginRight: 4 }} /> Đã kết nối
+                  </span>
+                )}
               </div>
+
+              {conn.status === 'expired' && (
+                <div className="banner banner-danger" style={{ marginTop: 10 }}>
+                  <AlertTriangle size={14} />
+                  <span>
+                    Google đã thu hồi quyền truy cập hộp thư này nên không đồng bộ được nữa.
+                    Thư mới trong Gmail sẽ không vào Agentify cho tới khi bạn kết nối lại.
+                    Bấm <strong>Kết nối lại</strong> bên dưới để cấp quyền mới.
+                  </span>
+                </div>
+              )}
               {/* Thao tác gắn với `conn` của vòng lặp, không phải `mainConn` —
                   nếu không thì có nhiều hộp thư, mọi nút đều tác động lên
                   đúng tài khoản đầu tiên. */}
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                {conn.status === 'expired' && (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={handleConnectGmail}
+                    disabled={disconnecting !== null}
+                  >
+                    <RefreshCw size={14} /> Kết nối lại
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"

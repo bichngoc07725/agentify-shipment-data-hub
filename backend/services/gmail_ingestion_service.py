@@ -22,6 +22,27 @@ from gmail_service.pipeline import (
 from services.ingestion_service import ingest_processed_email
 from services.sync_job_service import update_sync_job
 
+# Dấu hiệu Google trả về khi refresh token không dùng được nữa: bị thu hồi, hết
+# hạn (ứng dụng OAuth ở chế độ Testing chỉ sống 7 ngày), hoặc người dùng đã đổi
+# mật khẩu. Khớp trên chuỗi vì thư viện google-auth gói lỗi này thành
+# `RefreshError` với nội dung nằm trong phần mô tả.
+_AUTH_FAILURE_MARKERS = (
+    "invalid_grant",
+    "token has been expired or revoked",
+    "invalid_client",
+    "unauthorized_client",
+)
+
+
+def is_auth_failure(exc: BaseException) -> bool:
+    """Lỗi này có phải do kết nối Gmail chết hay không.
+
+    Phân biệt được là quan trọng: lỗi mạng nhất thời thì thử lại là xong, còn
+    token chết thì thử lại bao nhiêu lần cũng vô ích — phải đi cấp quyền lại.
+    """
+    text = str(exc).lower()
+    return any(marker in text for marker in _AUTH_FAILURE_MARKERS)
+
 
 def build_gmail_oauth_payload(
     refresh_token: str, scopes: list[str] | None = None
@@ -120,6 +141,8 @@ async def execute_sync_job(
         job.status = "failed"
         job.error_message = "Gmail connection is missing a refresh token"
         job.completed_at = datetime.now(UTC)
+        # Không có token thì cũng là kết nối chết, phải nói đúng như vậy.
+        connection.status = "expired"
         await db.flush()
         await db.refresh(job)
         return job
@@ -195,6 +218,12 @@ async def execute_sync_job(
         job.error_message = str(exc)
         job.started_at = previous_started_at or started_at
         job.completed_at = datetime.now(UTC)
+        if is_auth_failure(exc):
+            # Token bị thu hồi/hết hạn thì kết nối đã chết, nhưng trạng thái vẫn
+            # là "connected" — màn hình Setup báo xanh trong khi không có thư
+            # nào về được nữa. Hệ thống nói sai về chính nó là kiểu lỗi tệ nhất
+            # ở đây: người dùng đi tìm nguyên nhân ở mọi chỗ trừ chỗ đúng.
+            connection.status = "expired"
         await db.flush()
         await db.refresh(job)
         return job
