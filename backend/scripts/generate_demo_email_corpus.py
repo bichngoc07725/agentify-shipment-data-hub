@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from email.message import EmailMessage
 from email.utils import format_datetime, make_msgid
 from pathlib import Path
@@ -11,7 +11,17 @@ import shutil
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_DIR = ROOT / "demo_email"
-TARGET_TO = "vuphungminh250@gmail.com"
+# Hộp thư nhân viên Agentify dùng để test: mail đến gửi VÀO đây, mail đi gửi TỪ đây.
+TARGET_TO = "nguyendinhtung20072000@gmail.com"
+AGENTIFY_SELF = TARGET_TO
+
+INBOUND = "inbound"
+OUTBOUND = "outbound"
+
+# Nhãn gắn đầu tiêu đề của kịch bản vòng khép kín. Đặt `GMAIL_QUERY` là
+# `subject:AGENTIFY-DEMO newer_than:7d` để kéo đúng bộ này về, kể cả các thư
+# không đính kèm — query mặc định có `has:attachment` sẽ bỏ sót chúng.
+DEMO_TAG = "[AGENTIFY-DEMO]"
 
 
 @dataclass(frozen=True)
@@ -33,6 +43,13 @@ class ContainerProfile:
     shipper: str
     consignee: str
     status_bucket: str
+    # Địa chỉ đối tác cho từng vai trò trong luồng thư. Chỉ các hồ sơ sinh theo
+    # kịch bản (thread) mới cần, nên để mặc định rỗng cho 6 hồ sơ viết tay ban đầu.
+    carrier_email: str = ""
+    customer_email: str = ""
+    agent_email: str = ""
+    trucker_email: str = ""
+    customs_email: str = ""
 
 
 @dataclass(frozen=True)
@@ -46,6 +63,13 @@ class EmailRecord:
     sent_at: str
     pdf_name: str
     pdf_lines: tuple[str, ...]
+    # Mail đến (đối tác -> Agentify) hay mail đi (Agentify -> đối tác). Mail đi
+    # vẫn được gửi vào cùng hộp thư test, nên direction phải nằm trong header
+    # chứ không suy ra được từ To.
+    direction: str = INBOUND
+    to_email: str = TARGET_TO
+    # Slug của thư được trả lời, để nối In-Reply-To/References thành một thread.
+    reply_to_slug: str | None = None
 
 
 PROFILES: dict[str, ContainerProfile] = {
@@ -166,6 +190,283 @@ PROFILES: dict[str, ContainerProfile] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Hồ sơ chạy theo kịch bản (thread)
+#
+# 6 hồ sơ ở trên được viết tay từng thư. 10 hồ sơ dưới đây đi theo KỊCH BẢN 5
+# bước, có cả mail đến lẫn mail đi, vì một hộp thư giao nhận thật không bao giờ
+# chỉ toàn thư hãng tàu gửi tới — nửa số chứng từ đi ra từ chính công ty.
+# ---------------------------------------------------------------------------
+THREAD_PROFILES: dict[str, ContainerProfile] = {
+    "export_yokohama": ContainerProfile(
+        key="export_yokohama",
+        container_no="MSKU4120885",
+        booking_no="MSK-BKG-260615",
+        hbl_no="HBL-SGNYOK-4120",
+        mbl_no="MAEUHCM260615",
+        po_no="PO-JP-60215",
+        commodity="Rattan furniture",
+        quantity="1 x 40HC / 640 cartons",
+        pol="Cat Lai",
+        pod="Yokohama",
+        vessel_voyage="MAERSK SAIGON 214N",
+        etd="2026-06-18",
+        eta="2026-06-27",
+        carrier="Maersk",
+        shipper="An Phat Rattan Co., Ltd.",
+        consignee="Kanto Living Trading K.K.",
+        status_bucket="Chờ xuất cảng",
+        carrier_email="booking.vn@maersk-demo.com",
+        customer_email="export@anphatrattan.vn",
+    ),
+    "export_busan": ContainerProfile(
+        key="export_busan",
+        container_no="HLXU8305142",
+        booking_no="HLC-BKG-260616",
+        hbl_no="HBL-HPHPUS-8305",
+        mbl_no="HLCUHPH260616",
+        po_no="PO-KR-71408",
+        commodity="Electronic components",
+        quantity="1 x 20GP / 410 cartons",
+        pol="Hai Phong",
+        pod="Busan",
+        vessel_voyage="HANSA MERIDIAN 133E",
+        etd="2026-06-19",
+        eta="2026-06-25",
+        carrier="Hapag-Lloyd",
+        shipper="Tien Phong Electronics JSC",
+        consignee="Daehan Components Co., Ltd.",
+        status_bucket="Chờ xuất cảng",
+        carrier_email="vn.booking@hapag-demo.com",
+        customer_email="logistics@tienphongelec.vn",
+    ),
+    "import_shanghai": ContainerProfile(
+        key="import_shanghai",
+        container_no="ZIMU2776311",
+        booking_no="ZIM-BKG-260602",
+        hbl_no="HBL-SHACLI-2776",
+        mbl_no="ZIMUSHA260602",
+        po_no="PO-VN-90233",
+        commodity="Textile machinery parts",
+        quantity="1 x 40GP / 92 crates",
+        pol="Shanghai",
+        pod="Cat Lai",
+        vessel_voyage="ZIM QINGDAO 042S",
+        etd="2026-06-02",
+        eta="2026-06-12",
+        carrier="ZIM",
+        shipper="Huadong Machinery Co., Ltd.",
+        consignee="Dong Tien Textile JSC",
+        status_bucket="Chờ thông quan",
+        carrier_email="import.vn@zim-demo.com",
+        customer_email="xnk@dongtientextile.vn",
+        agent_email="prealert@sha-agent-demo.cn",
+        customs_email="thongbao@haiquan-demo.gov.vn",
+    ),
+    "import_busan": ContainerProfile(
+        key="import_busan",
+        container_no="KMTU5901421",
+        booking_no="KMT-BKG-260604",
+        hbl_no="HBL-PUSHPH-5901",
+        mbl_no="KMTCPUS260604",
+        po_no="PO-VN-90417",
+        commodity="Stainless steel coils",
+        quantity="1 x 20GP / 18 coils",
+        pol="Busan",
+        pod="Hai Phong",
+        vessel_voyage="KMTC NAGOYA 2612S",
+        etd="2026-06-04",
+        eta="2026-06-11",
+        carrier="KMTC",
+        shipper="Hanil Steel Corp.",
+        consignee="Thep Viet Nam Trading Co., Ltd.",
+        status_bucket="Chờ thông quan",
+        carrier_email="import@kmtc-demo.com",
+        customer_email="muahang@thepvietnam.vn",
+        agent_email="docs@pus-agent-demo.kr",
+        customs_email="thongbao@haiquan-demo.gov.vn",
+    ),
+    "quote_singapore": ContainerProfile(
+        key="quote_singapore",
+        container_no="WHLU6612093",
+        booking_no="WHL-BKG-260620",
+        hbl_no="HBL-DADSIN-6612",
+        mbl_no="WHLCDAD260620",
+        po_no="PO-SG-22087",
+        commodity="Coffee beans",
+        quantity="1 x 20GP / 320 bags",
+        pol="Da Nang",
+        pod="Singapore",
+        vessel_voyage="WAN HAI 215 026S",
+        etd="2026-06-23",
+        eta="2026-06-28",
+        carrier="Wan Hai Lines",
+        shipper="Tay Nguyen Coffee Export Co., Ltd.",
+        consignee="Lion City Commodities Pte. Ltd.",
+        status_bucket="Chờ chứng từ",
+        carrier_email="booking@wanhai-demo.com",
+        customer_email="sales@taynguyencoffee.vn",
+    ),
+    "quote_chennai": ContainerProfile(
+        key="quote_chennai",
+        container_no="SUDU3347800",
+        booking_no="SUD-BKG-260621",
+        hbl_no="HBL-SGNMAA-3347",
+        mbl_no="SUDUHCM260621",
+        po_no="PO-IN-55190",
+        commodity="Cashew kernels",
+        quantity="1 x 20GP / 700 cartons",
+        pol="Cat Lai",
+        pod="Chennai",
+        vessel_voyage="SEALAND MADRAS 118W",
+        etd="2026-06-25",
+        eta="2026-07-06",
+        carrier="Sealand",
+        shipper="Binh Phuoc Cashew JSC",
+        consignee="Coromandel Foods Pvt. Ltd.",
+        status_bucket="Chờ chứng từ",
+        carrier_email="vn.sales@sealand-demo.com",
+        customer_email="kinhdoanh@binhphuoccashew.vn",
+    ),
+    "delivery_binhduong": ContainerProfile(
+        key="delivery_binhduong",
+        container_no="PONU7150630",
+        booking_no="PON-BKG-260527",
+        hbl_no="HBL-KHHCLI-7150",
+        mbl_no="PONUKHH260527",
+        po_no="PO-VN-31022",
+        commodity="PP resin",
+        quantity="1 x 20GP / 20 tons",
+        pol="Kaohsiung",
+        pod="Cat Lai",
+        vessel_voyage="PANCON SUNRISE 205S",
+        etd="2026-05-27",
+        eta="2026-06-05",
+        carrier="Pan Continental",
+        shipper="Formosa Polymer Co., Ltd.",
+        consignee="Nhua Binh Duong Co., Ltd.",
+        status_bucket="Đã hoàn tất",
+        carrier_email="do.vn@pancon-demo.com",
+        customer_email="kho@nhuabinhduong.vn",
+        trucker_email="dieuxe@vantaidongnam.vn",
+    ),
+    "delivery_bacninh": ContainerProfile(
+        key="delivery_bacninh",
+        container_no="TLLU2089457",
+        booking_no="TSL-BKG-260529",
+        hbl_no="HBL-PUSHPH-2089",
+        mbl_no="TSLUPUS260529",
+        po_no="PO-VN-31148",
+        commodity="Display panels",
+        quantity="1 x 40HC / 288 cartons",
+        pol="Busan",
+        pod="Hai Phong",
+        vessel_voyage="TS TOKYO 2611N",
+        etd="2026-05-29",
+        eta="2026-06-06",
+        carrier="TS Lines",
+        shipper="Sejong Display Co., Ltd.",
+        consignee="Bac Ninh Electronics Assembly Co., Ltd.",
+        status_bucket="Đã hoàn tất",
+        carrier_email="do@tslines-demo.com",
+        customer_email="nhanhang@bacninhassembly.vn",
+        trucker_email="dispatch@vantaiphuongbac.vn",
+    ),
+    "finance_rotterdam": ContainerProfile(
+        key="finance_rotterdam",
+        container_no="APZU8741204",
+        booking_no="CMA-BKG-260512",
+        hbl_no="HBL-SGNRTM-8741",
+        mbl_no="CMDUSGN260512",
+        po_no="PO-NL-40761",
+        commodity="Bamboo homeware",
+        quantity="1 x 40HC / 905 cartons",
+        pol="Cat Lai",
+        pod="Rotterdam",
+        vessel_voyage="CMA CGM SCANDOLA 318W",
+        etd="2026-05-12",
+        eta="2026-06-14",
+        carrier="CMA CGM",
+        shipper="Truong Thinh Bamboo Co., Ltd.",
+        consignee="Lowlands Home BV",
+        status_bucket="Đang vận chuyển",
+        carrier_email="billing.vn@cma-demo.com",
+        customer_email="ketoan@truongthinhbamboo.vn",
+    ),
+    "finance_osaka": ContainerProfile(
+        key="finance_osaka",
+        container_no="BEAU5033684",
+        booking_no="ONE-BKG-260518",
+        hbl_no="HBL-HPHOSA-5033",
+        mbl_no="ONEYHPH260518",
+        po_no="PO-JP-60480",
+        commodity="Ceramic tableware",
+        quantity="1 x 20GP / 480 cartons",
+        pol="Hai Phong",
+        pod="Osaka",
+        vessel_voyage="ONE HARBOUR 077E",
+        etd="2026-05-18",
+        eta="2026-05-28",
+        carrier="Ocean Network Express",
+        shipper="Bat Trang Ceramics JSC",
+        consignee="Naniwa Household Co., Ltd.",
+        status_bucket="Đang vận chuyển",
+        carrier_email="billing@one-demo.com",
+        customer_email="ketoan@battrangceramics.vn",
+    ),
+    # Hồ sơ cho vòng hỏi giá khép kín. Số container ở đây là "sẽ có sau khi
+    # đặt chỗ" — cả 4 thư của vòng này đều phát sinh TRƯỚC lúc có container,
+    # nên không thư nào được nhắc tới nó.
+    "roundtrip_rfq": ContainerProfile(
+        key="roundtrip_rfq",
+        container_no="MSKU6512347",
+        booking_no="WHL-BKG-260710",
+        hbl_no="",
+        mbl_no="",
+        po_no="PO-SG-77420",
+        commodity="Hạt điều rang muối",
+        quantity="1 x 20GP",
+        pol="Cat Lai",
+        pod="Singapore",
+        vessel_voyage="WAN HAI 273 041S",
+        etd="2026-07-10",
+        eta="2026-07-15",
+        carrier="Wan Hai Lines",
+        shipper="Cong ty TNHH Hat Dieu Phuong Nam",
+        consignee="Lion City Commodities Pte. Ltd.",
+        status_bucket="Chờ chứng từ",
+        carrier_email="booking@wanhai-demo.com",
+        customer_email="xnk@hatdieuphuongnam.vn",
+    ),
+    # Vòng hỏi giá thứ hai: tuyến khác, hàng khác, và quan trọng hơn là bảng
+    # phí có dòng SỐ LƯỢNG 2 — để kiểm đúng nhánh chia thành tiền cho số lượng
+    # ra đơn giá, thứ mà vòng đầu (mọi dòng đều x1) không chạm tới.
+    "roundtrip_rfq_hpn": ContainerProfile(
+        key="roundtrip_rfq_hpn",
+        container_no="ONEU7041287",
+        booking_no="ONE-BKG-260805",
+        hbl_no="",
+        mbl_no="",
+        po_no="PO-JP-88315",
+        commodity="Áo sơ mi cotton",
+        quantity="2 x 40HC",
+        pol="Hai Phong",
+        pod="Yokohama",
+        vessel_voyage="ONE COMMITMENT 145E",
+        etd="2026-08-20",
+        eta="2026-08-29",
+        carrier="Ocean Network Express",
+        shipper="Cong ty CP Det May Thanh Long",
+        consignee="Sakura Apparel Trading K.K.",
+        status_bucket="Chờ chứng từ",
+        carrier_email="booking.vn@one-demo.com",
+        customer_email="xuatkhau@detmaythanhlong.vn",
+    ),
+}
+
+PROFILES.update(THREAD_PROFILES)
+
+
 def _escape_pdf_text(value: str) -> str:
     return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
@@ -214,24 +515,35 @@ def _build_text_pdf_bytes(lines: list[str]) -> bytes:
     return bytes(pdf)
 
 
-def _build_eml_bytes(record: EmailRecord, pdf_bytes: bytes) -> bytes:
+def _build_eml_bytes(
+    record: EmailRecord,
+    pdf_bytes: bytes | None,
+    *,
+    message_id: str,
+    in_reply_to: str | None = None,
+) -> bytes:
     sent_at = record.sent_at
     if re.search(r" [+-]\d{2}$", sent_at):
         sent_at = f"{sent_at}00"
 
     message = EmailMessage()
     message["Subject"] = record.title
-    message["To"] = TARGET_TO
+    message["To"] = record.to_email
     message["From"] = record.from_email
     message["Date"] = format_datetime(datetime.strptime(sent_at, "%Y-%m-%d %H:%M %z"))
-    message["Message-ID"] = make_msgid(idstring=record.slug, domain="agentify.local")
+    message["Message-ID"] = message_id
+    message["X-Agentify-Direction"] = record.direction
+    if in_reply_to:
+        message["In-Reply-To"] = in_reply_to
+        message["References"] = in_reply_to
     message.set_content(record.body.strip())
-    message.add_attachment(
-        pdf_bytes,
-        maintype="application",
-        subtype="pdf",
-        filename=record.pdf_name,
-    )
+    if pdf_bytes is not None and record.pdf_name:
+        message.add_attachment(
+            pdf_bytes,
+            maintype="application",
+            subtype="pdf",
+            filename=record.pdf_name,
+        )
     return message.as_bytes()
 
 
@@ -242,17 +554,26 @@ def _attachment_lines(
     *,
     omit_container: bool = False,
     omit_hbl: bool = False,
+    omit_booking: bool = False,
+    omit_mbl: bool = False,
+    omit_vessel: bool = False,
 ) -> tuple[str, ...]:
     lines = [f"Document Type: {doc_type}"]
     if not omit_container:
         lines.append(f"Container No: {profile.container_no}")
+    if not omit_booking:
+        lines.append(f"Booking No: {profile.booking_no}")
+    lines.append(f"PO No: {profile.po_no}")
     lines.extend(
         [
-            f"Booking No: {profile.booking_no}",
-            f"PO No: {profile.po_no}",
             f"POL: {profile.pol}",
             f"POD: {profile.pod}",
-            f"Vessel/Voyage: {profile.vessel_voyage}",
+        ]
+    )
+    if not omit_vessel:
+        lines.append(f"Vessel/Voyage: {profile.vessel_voyage}")
+    lines.extend(
+        [
             f"ETD: {profile.etd}",
             f"ETA: {profile.eta}",
             f"Shipper: {profile.shipper}",
@@ -263,7 +584,7 @@ def _attachment_lines(
     )
     if profile.hbl_no and not omit_hbl:
         lines.append(f"HBL No: {profile.hbl_no}")
-    if profile.mbl_no:
+    if profile.mbl_no and not omit_mbl:
         lines.append(f"MBL No: {profile.mbl_no}")
     lines.extend(extra_lines)
     return tuple(lines)
@@ -279,6 +600,10 @@ def _record(
     sent_at: str,
     pdf_name: str,
     pdf_lines: tuple[str, ...],
+    *,
+    direction: str = INBOUND,
+    to_email: str = TARGET_TO,
+    reply_to_slug: str | None = None,
 ) -> EmailRecord:
     return EmailRecord(
         seq=seq,
@@ -290,7 +615,870 @@ def _record(
         sent_at=sent_at,
         pdf_name=pdf_name,
         pdf_lines=pdf_lines,
+        direction=direction,
+        to_email=to_email,
+        reply_to_slug=reply_to_slug,
     )
+
+
+@dataclass(frozen=True)
+class ThreadStep:
+    """Một bước trong kịch bản. Text dùng `{field}` theo tên field của ContainerProfile."""
+
+    suffix: str
+    direction: str
+    partner: str  # carrier | customer | agent | trucker | customs
+    subject: str
+    body: str
+    day_offset: int
+    sent_time: str
+    # doc_type rỗng nghĩa là thư không đính kèm — reply thuần text, rất phổ biến
+    # trong thực tế và là đường trích xuất từ body chứ không từ PDF.
+    doc_type: str = ""
+    pdf_stem: str = ""
+    extra_lines: tuple[str, ...] = ()
+    omit_container: bool = False
+    # Chứng từ phát hành TRƯỚC khi đặt chỗ (báo giá): chưa thể có container,
+    # booking, vận đơn hay tên tàu. Nếu vẫn in ra thì corpus dạy sai luồng
+    # nghiệp vụ và mọi phép đo trích xuất trên nó đều vô nghĩa.
+    pre_booking: bool = False
+    # Chặng hội thoại, ví dụ "KHÁCH>AGENTIFY". Khi cả 4 chặng cùng chạy vào MỘT
+    # hộp thư test, From/To bị `send_demo_emails.py` ghi đè thành cùng một địa
+    # chỉ — nhãn ở tiêu đề là thứ duy nhất còn phân biệt được ai gửi cho ai.
+    leg: str = ""
+
+
+@dataclass(frozen=True)
+class ThreadPlan:
+    profile_key: str
+    scenario: str
+    start_date: date
+
+
+def _partner_email(profile: ContainerProfile, partner: str) -> str:
+    mapping = {
+        "carrier": profile.carrier_email,
+        "customer": profile.customer_email,
+        "agent": profile.agent_email,
+        "trucker": profile.trucker_email,
+        "customs": profile.customs_email,
+    }
+    email = mapping.get(partner, "")
+    if not email:
+        # Không im lặng rơi về địa chỉ rỗng: một From rỗng làm .eml hỏng theo
+        # kiểu chỉ lộ ra khi gửi SMTP thật.
+        raise ValueError(f"Profile {profile.key!r} thiếu email cho vai trò {partner!r}")
+    return email
+
+
+def _fill(text: str, profile: ContainerProfile) -> str:
+    return text.format(
+        container_no=profile.container_no,
+        booking_no=profile.booking_no,
+        hbl_no=profile.hbl_no,
+        mbl_no=profile.mbl_no,
+        po_no=profile.po_no,
+        commodity=profile.commodity,
+        quantity=profile.quantity,
+        pol=profile.pol,
+        pod=profile.pod,
+        vessel_voyage=profile.vessel_voyage,
+        etd=profile.etd,
+        eta=profile.eta,
+        carrier=profile.carrier,
+        shipper=profile.shipper,
+        consignee=profile.consignee,
+    )
+
+
+def _thread_records(
+    start_seq: int,
+    profile: ContainerProfile,
+    steps: tuple[ThreadStep, ...],
+    start_date: date,
+) -> list[EmailRecord]:
+    records: list[EmailRecord] = []
+    previous_slug: str | None = None
+
+    for index, step in enumerate(steps):
+        slug = f"{profile.key.replace('_', '-')}-{step.suffix}"
+        partner_email = _partner_email(profile, step.partner)
+        outbound = step.direction == OUTBOUND
+        sent_on = start_date + timedelta(days=step.day_offset)
+        sent_at = f"{sent_on.isoformat()} {step.sent_time} +07"
+
+        if step.doc_type:
+            pdf_name = f"{step.pdf_stem}_{profile.container_no.lower()}.pdf"
+            pdf_lines = _attachment_lines(
+                profile,
+                step.doc_type,
+                [_fill(line, profile) for line in step.extra_lines],
+                omit_container=step.omit_container or step.pre_booking,
+                omit_booking=step.pre_booking,
+                omit_hbl=step.pre_booking,
+                omit_mbl=step.pre_booking,
+                omit_vessel=step.pre_booking,
+            )
+        else:
+            pdf_name = ""
+            pdf_lines = ()
+
+        subject = _fill(step.subject, profile)
+        if step.leg:
+            # `DEMO_TAG` đứng trước để lọc được cả vòng bằng một câu Gmail
+            # query duy nhất; nhãn chặng đứng sau để đọc là biết ai gửi ai.
+            subject = f"{DEMO_TAG}[{step.leg}] {subject}"
+
+        records.append(
+            _record(
+                start_seq + index,
+                profile,
+                slug,
+                subject,
+                _fill(step.body, profile),
+                AGENTIFY_SELF if outbound else partner_email,
+                sent_at,
+                pdf_name,
+                pdf_lines,
+                direction=step.direction,
+                to_email=partner_email if outbound else TARGET_TO,
+                reply_to_slug=previous_slug,
+            )
+        )
+        previous_slug = slug
+
+    return records
+
+
+# Thư gửi hãng tàu / đại lý nước ngoài viết tiếng Anh, thư gửi khách hàng và
+# nhà xe trong nước viết tiếng Việt — đúng thói quen của một forwarder Việt Nam,
+# và cũng là phép thử xem trích xuất có phụ thuộc ngôn ngữ hay không.
+SCENARIO_EXPORT_FCL: tuple[ThreadStep, ...] = (
+    ThreadStep(
+        suffix="booking-request",
+        direction=OUTBOUND,
+        partner="carrier",
+        subject="Booking request {pol} - {pod} / PO {po_no}",
+        body=(
+            "Dear {carrier} Booking Team,\n\n"
+            "Please arrange a booking for {quantity}, commodity {commodity}.\n"
+            "POL {pol}, POD {pod}, target ETD {etd}.\n"
+            "Shipper: {shipper}\n"
+            "Consignee: {consignee}\n"
+            "Our PO reference: {po_no}\n\n"
+            "Kindly confirm space and cut-off times.\n\n"
+            "Best regards,\nAgentify Forwarding - Export Desk"
+        ),
+        day_offset=0,
+        sent_time="08:45",
+    ),
+    ThreadStep(
+        suffix="booking-confirmation",
+        direction=INBOUND,
+        partner="carrier",
+        subject="Booking confirmed {booking_no} / {container_no}",
+        body=(
+            "Dear Agentify,\n\n"
+            "Booking {booking_no} is confirmed on {vessel_voyage}.\n"
+            "Container {container_no} is allocated, ETD {etd} and ETA {eta}.\n\n"
+            "Regards,\n{carrier} Customer Service"
+        ),
+        day_offset=1,
+        sent_time="10:20",
+        doc_type="Booking Confirmation",
+        pdf_stem="booking_confirmation",
+        extra_lines=("Status: Booking confirmed", "SI cut-off: {etd}", "VGM cut-off: {etd}"),
+    ),
+    ThreadStep(
+        suffix="si-submission",
+        direction=OUTBOUND,
+        partner="carrier",
+        subject="SI submission {booking_no} / {container_no}",
+        body=(
+            "Dear {carrier} Documentation Team,\n\n"
+            "Please find attached our shipping instruction for booking {booking_no}, "
+            "container {container_no}.\n"
+            "House B/L number to be shown: {hbl_no}\n\n"
+            "Please issue the draft B/L once processed.\n\n"
+            "Best regards,\nAgentify Forwarding - Documentation"
+        ),
+        day_offset=2,
+        sent_time="15:30",
+        doc_type="Shipping Instruction",
+        pdf_stem="shipping_instruction",
+        extra_lines=("Freight Term: FOB {pol}", "Notify Party: Same as consignee"),
+    ),
+    ThreadStep(
+        suffix="vgm-cutoff-reminder",
+        direction=INBOUND,
+        partner="carrier",
+        subject="Reminder: VGM and gate-in cut-off for {container_no}",
+        body=(
+            "Dear Agentify,\n\n"
+            "This is a reminder that VGM for container {container_no} under booking "
+            "{booking_no} has not been received yet.\n"
+            "Gate-in cut-off at {pol} closes one day before ETD {etd}.\n\n"
+            "Regards,\n{carrier} Operations"
+        ),
+        day_offset=3,
+        sent_time="09:05",
+    ),
+    ThreadStep(
+        suffix="onboard-draft-bl",
+        direction=INBOUND,
+        partner="carrier",
+        subject="On board {container_no} / draft B/L {mbl_no}",
+        body=(
+            "Dear Agentify,\n\n"
+            "Container {container_no} is on board {vessel_voyage}. "
+            "Draft bill of lading {mbl_no} is attached for your check.\n"
+            "ETA {pod} is {eta}.\n\n"
+            "Regards,\n{carrier} Documentation"
+        ),
+        day_offset=5,
+        sent_time="18:40",
+        doc_type="Draft Bill of Lading",
+        pdf_stem="draft_bl",
+        extra_lines=("Status: Vessel departed", "Draft only: Yes", "Number of originals: 3"),
+    ),
+)
+
+SCENARIO_IMPORT_CUSTOMS: tuple[ThreadStep, ...] = (
+    ThreadStep(
+        suffix="prealert",
+        direction=INBOUND,
+        partner="agent",
+        subject="Pre-alert {container_no} / {pol} to {pod}",
+        body=(
+            "Dear Agentify,\n\n"
+            "Please find attached the pre-alert for container {container_no} shipped on "
+            "{vessel_voyage}.\n"
+            "House B/L {hbl_no}, master B/L {mbl_no}, ETA {pod} {eta}.\n\n"
+            "Best regards,\nOverseas Agent"
+        ),
+        day_offset=0,
+        sent_time="11:10",
+        doc_type="Pre Alert",
+        pdf_stem="prealert",
+        extra_lines=("Status: In transit", "Original docs sent: Yes", "Telex release: Pending"),
+    ),
+    ThreadStep(
+        suffix="docs-request",
+        direction=OUTBOUND,
+        partner="customer",
+        subject="Đề nghị gửi bộ chứng từ lô {container_no} / {po_no}",
+        body=(
+            "Kính gửi Quý khách,\n\n"
+            "Lô hàng container {container_no}, vận đơn {hbl_no} dự kiến cập cảng {pod} "
+            "ngày {eta}.\n"
+            "Để kịp mở tờ khai, nhờ Quý khách gửi giúp invoice, packing list và C/O "
+            "trước ngày tàu đến.\n\n"
+            "Trân trọng,\nAgentify - Bộ phận Chứng từ"
+        ),
+        day_offset=2,
+        sent_time="09:30",
+    ),
+    ThreadStep(
+        suffix="invoice-packing-list",
+        direction=INBOUND,
+        partner="customer",
+        subject="Chứng từ lô {container_no} / invoice và packing list",
+        body=(
+            "Chào bạn,\n\n"
+            "Bên mình gửi invoice và packing list cho lô {container_no}, "
+            "PO {po_no}, hàng {commodity}.\n"
+            "Nhờ bạn kiểm tra và báo lại nếu còn thiếu gì.\n\n"
+            "Cảm ơn,\nPhòng Xuất nhập khẩu"
+        ),
+        day_offset=4,
+        sent_time="16:15",
+        doc_type="Commercial Invoice",
+        pdf_stem="commercial_invoice",
+        extra_lines=(
+            "Invoice No: INV-{po_no}",
+            "Invoice Amount: USD 48,250.00",
+            "Payment Term: TT 30 days",
+            "Incoterm: CIF {pod}",
+        ),
+    ),
+    ThreadStep(
+        suffix="customs-declaration",
+        direction=OUTBOUND,
+        partner="customer",
+        subject="Tờ khai nhập khẩu lô {container_no} - nhờ xác nhận",
+        body=(
+            "Kính gửi Quý khách,\n\n"
+            "Agentify đã lên tờ khai nhập khẩu cho lô {container_no} theo vận đơn {hbl_no}.\n"
+            "Nhờ Quý khách kiểm tra mã HS và trị giá khai báo trong file đính kèm, "
+            "xác nhận trước 16h hôm nay để bên mình truyền tờ khai.\n\n"
+            "Trân trọng,\nAgentify - Bộ phận Hải quan"
+        ),
+        day_offset=6,
+        sent_time="10:50",
+        doc_type="Customs Declaration",
+        pdf_stem="customs_declaration",
+        extra_lines=(
+            "Declaration No: 105892374610",
+            "Declaration Type: A11 - Nhap kinh doanh tieu dung",
+            "HS Code: 8448.59.00",
+            "Taxable Value: VND 1,182,400,000",
+        ),
+    ),
+    ThreadStep(
+        suffix="channel-and-charges",
+        direction=INBOUND,
+        partner="customs",
+        subject="Thông báo phân luồng tờ khai 105892374610 / {container_no}",
+        body=(
+            "Kính gửi doanh nghiệp,\n\n"
+            "Tờ khai 105892374610 cho container {container_no} được phân luồng vàng, "
+            "đề nghị xuất trình hồ sơ giấy tại chi cục.\n"
+            "Container đang lưu bãi tại {pod}, thời hạn miễn phí lưu container còn 3 ngày.\n\n"
+            "Trân trọng."
+        ),
+        day_offset=7,
+        sent_time="08:20",
+        doc_type="Customs Clearance Notice",
+        pdf_stem="customs_notice",
+        extra_lines=(
+            "Declaration No: 105892374610",
+            "Channel: Yellow",
+            "Free time days: 3",
+            "Status: Waiting customs clearance",
+        ),
+    ),
+)
+
+SCENARIO_QUOTE_TO_BOOKING: tuple[ThreadStep, ...] = (
+    ThreadStep(
+        suffix="rfq",
+        direction=INBOUND,
+        partner="customer",
+        subject="Hỏi giá cước {pol} đi {pod} / {commodity}",
+        body=(
+            "Chào Agentify,\n\n"
+            "Bên mình cần báo giá cước biển cho lô {commodity}, khoảng {quantity}, "
+            "đi từ {pol} tới {pod}, hàng sẵn khoảng ngày {etd}.\n"
+            "PO tham chiếu {po_no}. Nhờ bạn báo giá kèm phụ phí local và thời gian "
+            "miễn phí lưu container.\n\n"
+            "Cảm ơn,\nPhòng Kinh doanh"
+        ),
+        day_offset=0,
+        sent_time="14:05",
+    ),
+    ThreadStep(
+        suffix="quotation",
+        direction=OUTBOUND,
+        partner="customer",
+        subject="Báo giá cước {pol} - {pod} / {po_no}",
+        body=(
+            "Kính gửi Quý khách,\n\n"
+            "Agentify xin gửi báo giá cho lô {commodity} tuyến {pol} - {pod}, "
+            "hãng tàu dự kiến {carrier}.\n"
+            "Chi tiết cước và phụ phí trong file đính kèm, báo giá có hiệu lực 14 ngày.\n\n"
+            "Trân trọng,\nAgentify - Bộ phận Kinh doanh"
+        ),
+        day_offset=1,
+        sent_time="11:40",
+        doc_type="Quotation",
+        pdf_stem="quotation",
+        extra_lines=(
+            "Quotation No: QT-{po_no}",
+            "Ocean Freight: USD 780 / 20GP",
+            "THC: VND 3,300,000",
+            "Free time days: 7",
+            "Validity: 14 days",
+        ),
+        pre_booking=True,
+    ),
+    ThreadStep(
+        suffix="quote-approval",
+        direction=INBOUND,
+        partner="customer",
+        subject="Re: Báo giá cước {pol} - {pod} / duyệt giá",
+        body=(
+            "Chào bạn,\n\n"
+            "Bên mình duyệt mức giá trong báo giá QT-{po_no}. "
+            "Nhờ Agentify đặt chỗ với {carrier} cho ngày tàu chạy {etd}.\n\n"
+            "Cảm ơn,\nPhòng Kinh doanh"
+        ),
+        day_offset=3,
+        sent_time="09:15",
+    ),
+    ThreadStep(
+        suffix="booking-to-customer",
+        direction=OUTBOUND,
+        partner="customer",
+        subject="Xác nhận booking {booking_no} / container {container_no}",
+        body=(
+            "Kính gửi Quý khách,\n\n"
+            "Agentify đã đặt chỗ thành công booking {booking_no} với {carrier}, "
+            "container {container_no} trên tàu {vessel_voyage}.\n"
+            "ETD {pol} ngày {etd}, ETA {pod} ngày {eta}.\n\n"
+            "Trân trọng,\nAgentify - Bộ phận Kinh doanh"
+        ),
+        day_offset=4,
+        sent_time="17:25",
+        doc_type="Booking Confirmation",
+        pdf_stem="booking_confirmation",
+        extra_lines=("Status: Booking confirmed", "Quotation No: QT-{po_no}"),
+    ),
+    ThreadStep(
+        suffix="empty-release",
+        direction=INBOUND,
+        partner="carrier",
+        subject="Empty release order {booking_no} / {container_no}",
+        body=(
+            "Dear Agentify,\n\n"
+            "Empty release order for booking {booking_no} is attached. "
+            "Container {container_no} can be picked up at the depot from today.\n"
+            "Please return the laden container before the gate-in cut-off.\n\n"
+            "Regards,\n{carrier} Equipment Control"
+        ),
+        day_offset=5,
+        sent_time="08:35",
+        doc_type="Empty Release Order",
+        pdf_stem="empty_release_order",
+        extra_lines=("Status: Empty released", "Depot: {pol} inland depot"),
+    ),
+)
+
+SCENARIO_DELIVERY_POD: tuple[ThreadStep, ...] = (
+    ThreadStep(
+        suffix="delivery-order",
+        direction=INBOUND,
+        partner="carrier",
+        subject="Delivery order {container_no} / {mbl_no}",
+        body=(
+            "Dear Agentify,\n\n"
+            "Delivery order for container {container_no} under B/L {mbl_no} is attached.\n"
+            "The container is available at {pod} terminal. Free time expires in 5 days.\n\n"
+            "Regards,\n{carrier} Import Desk"
+        ),
+        day_offset=0,
+        sent_time="09:50",
+        doc_type="Delivery Order",
+        pdf_stem="delivery_order",
+        extra_lines=("DO No: DO-{booking_no}", "Free time days: 5", "Status: Available for pickup"),
+    ),
+    ThreadStep(
+        suffix="trucking-dispatch",
+        direction=OUTBOUND,
+        partner="trucker",
+        subject="Lệnh điều xe lấy container {container_no} tại {pod}",
+        body=(
+            "Gửi bộ phận điều xe,\n\n"
+            "Nhờ nhà xe bố trí đầu kéo lấy container {container_no} tại cảng {pod} "
+            "theo lệnh giao hàng DO-{booking_no}.\n"
+            "Hàng {commodity}, giao tại kho khách hàng {consignee}.\n"
+            "Nhờ tài xế chụp ảnh phiếu EIR và biên bản giao hàng sau khi hạ hàng.\n\n"
+            "Trân trọng,\nAgentify - Bộ phận Hiện trường"
+        ),
+        day_offset=1,
+        sent_time="07:40",
+        doc_type="Trucking Dispatch Order",
+        pdf_stem="trucking_dispatch",
+        extra_lines=("DO No: DO-{booking_no}", "Delivery address: Kho {consignee}"),
+    ),
+    ThreadStep(
+        suffix="driver-pickup-note",
+        direction=INBOUND,
+        partner="trucker",
+        subject="Re: Lệnh điều xe {container_no} / đã lấy hàng",
+        body=(
+            "Chào anh,\n\n"
+            "Xe đã lấy container {container_no} ra khỏi cảng {pod} lúc 10h30 sáng nay, "
+            "dự kiến hạ hàng tại kho khách chiều nay.\n"
+            "Vỏ container sẽ trả depot sau khi rút hàng xong.\n\n"
+            "Tài xế: Nguyễn Văn Bảy - xe 51C-234.56"
+        ),
+        day_offset=1,
+        sent_time="10:45",
+    ),
+    ThreadStep(
+        suffix="eir",
+        direction=INBOUND,
+        partner="trucker",
+        subject="Phiếu EIR container {container_no}",
+        body=(
+            "Chào anh,\n\n"
+            "Bên mình gửi phiếu giao nhận container {container_no} có xác nhận của cảng.\n"
+            "Tình trạng vỏ bình thường, không ghi nhận hư hỏng.\n\n"
+            "Trân trọng,\nBộ phận Điều vận"
+        ),
+        day_offset=1,
+        sent_time="15:20",
+        doc_type="Equipment Interchange Receipt",
+        pdf_stem="eir",
+        extra_lines=("Seal No: SL-8842190", "Container condition: Sound", "Status: Gate out"),
+    ),
+    ThreadStep(
+        suffix="pod-to-customer",
+        direction=OUTBOUND,
+        partner="customer",
+        subject="Biên bản giao hàng container {container_no} / {po_no}",
+        body=(
+            "Kính gửi Quý khách,\n\n"
+            "Lô hàng {commodity} thuộc container {container_no} đã giao xong tại kho.\n"
+            "Agentify gửi kèm biên bản giao hàng có ký nhận. Vỏ container đã trả depot, "
+            "hồ sơ lô hàng khép lại.\n\n"
+            "Trân trọng,\nAgentify - Bộ phận Hiện trường"
+        ),
+        day_offset=2,
+        sent_time="09:10",
+        doc_type="Proof of Delivery",
+        pdf_stem="proof_of_delivery",
+        extra_lines=("Status: Delivered", "Received by: Kho {consignee}", "Empty returned: Yes"),
+    ),
+)
+
+SCENARIO_FINANCE_DEBIT: tuple[ThreadStep, ...] = (
+    ThreadStep(
+        suffix="debit-note",
+        direction=OUTBOUND,
+        partner="customer",
+        subject="Debit note lô {container_no} / booking {booking_no}",
+        body=(
+            "Kính gửi Quý khách,\n\n"
+            "Agentify gửi debit note cho lô hàng container {container_no}, "
+            "tuyến {pol} - {pod} trên tàu {vessel_voyage}.\n"
+            "Nhờ Quý khách đối chiếu và thanh toán theo thời hạn ghi trên chứng từ.\n\n"
+            "Trân trọng,\nAgentify - Bộ phận Kế toán"
+        ),
+        day_offset=0,
+        sent_time="14:30",
+        doc_type="Debit Note",
+        pdf_stem="debit_note",
+        extra_lines=(
+            "Debit Note No: DN-{booking_no}",
+            "Total Amount: VND 62,480,000",
+            "Payment Term: 15 days from issue date",
+        ),
+    ),
+    ThreadStep(
+        suffix="charge-query",
+        direction=INBOUND,
+        partner="customer",
+        subject="Re: Debit note lô {container_no} / hỏi lại phí",
+        body=(
+            "Chào bạn,\n\n"
+            "Bên mình xem debit note DN-{booking_no} thì thấy có khoản phí chứng từ và "
+            "phí niêm phong cao hơn báo giá ban đầu.\n"
+            "Nhờ Agentify giải thích giúp phần chênh lệch trước khi bên mình duyệt thanh toán.\n\n"
+            "Cảm ơn,\nPhòng Kế toán"
+        ),
+        day_offset=2,
+        sent_time="10:05",
+    ),
+    ThreadStep(
+        suffix="charge-breakdown",
+        direction=OUTBOUND,
+        partner="customer",
+        subject="Giải trình phí debit note DN-{booking_no} / {container_no}",
+        body=(
+            "Kính gửi Quý khách,\n\n"
+            "Agentify gửi bảng kê chi tiết từng khoản phí của debit note DN-{booking_no} "
+            "cho container {container_no}.\n"
+            "Phần chênh lệch đến từ phụ phí mùa cao điểm của {carrier} áp dụng từ ngày {etd}.\n\n"
+            "Trân trọng,\nAgentify - Bộ phận Kế toán"
+        ),
+        day_offset=3,
+        sent_time="16:50",
+        doc_type="Charge Breakdown",
+        pdf_stem="charge_breakdown",
+        extra_lines=(
+            "Debit Note No: DN-{booking_no}",
+            "Ocean Freight: VND 41,600,000",
+            "Documentation Fee: VND 900,000",
+            "Peak Season Surcharge: VND 8,300,000",
+        ),
+    ),
+    ThreadStep(
+        suffix="payment-confirmation",
+        direction=INBOUND,
+        partner="customer",
+        subject="Re: Debit note DN-{booking_no} / đã chuyển khoản",
+        body=(
+            "Chào bạn,\n\n"
+            "Bên mình đã duyệt và chuyển khoản đủ số tiền của debit note DN-{booking_no} "
+            "cho lô {container_no} trong sáng nay.\n"
+            "Nhờ Agentify gửi lại hóa đơn VAT.\n\n"
+            "Cảm ơn,\nPhòng Kế toán"
+        ),
+        day_offset=6,
+        sent_time="09:25",
+    ),
+    ThreadStep(
+        suffix="demurrage-notice",
+        direction=INBOUND,
+        partner="carrier",
+        subject="Demurrage notice {container_no} / {mbl_no}",
+        body=(
+            "Dear Agentify,\n\n"
+            "Container {container_no} under B/L {mbl_no} has exceeded the agreed free time "
+            "at {pod}.\n"
+            "Demurrage is accruing from today. Please arrange return of the empty unit.\n\n"
+            "Regards,\n{carrier} Equipment Control"
+        ),
+        day_offset=8,
+        sent_time="11:55",
+        doc_type="Demurrage Notice",
+        pdf_stem="demurrage_notice",
+        extra_lines=(
+            "Free time days: 7",
+            "Demurrage rate: USD 45 / day",
+            "Status: Demurrage accruing",
+        ),
+    ),
+)
+
+# Vòng hỏi giá khép kín, chạy trọn trong MỘT hộp thư test.
+#
+# Bốn chặng: khách hỏi Agentify → Agentify hỏi hãng tàu → hãng tàu trả lời →
+# Agentify báo giá khách. Cả bốn đều gửi vào cùng địa chỉ, nên nhãn `leg` ở
+# tiêu đề là thứ duy nhất phân biệt được chặng nào là chặng nào.
+#
+# Thư của hãng tàu (chặng 3) cố ý mang bảng phí trong THÂN THƯ, không phải PDF:
+# đó là dạng hãng tàu hay gửi nhất, và là đầu vào cho nút "Nạp phí từ thư hãng
+# tàu trả lời" trên trang báo giá.
+SCENARIO_RFQ_ROUND_TRIP: tuple[ThreadStep, ...] = (
+    ThreadStep(
+        suffix="01-khach-hoi-gia",
+        leg="KHACH>AGENTIFY",
+        direction=INBOUND,
+        partner="customer",
+        subject="Hỏi giá cước {pol} đi {pod} / {commodity}",
+        body=(
+            "Chào Agentify,\n\n"
+            "Bên mình có lô {commodity} cần xuất đi {pod}, lấy hàng tại {pol}.\n"
+            "Số lượng dự kiến {quantity}, hàng sẵn khoảng ngày {etd}.\n"
+            "Điều kiện giao hàng FOB. PO tham chiếu {po_no}.\n\n"
+            "Nhờ Agentify báo giá cước trọn gói, kèm thời gian miễn phí lưu container "
+            "và thời gian vận chuyển.\n\n"
+            "Cảm ơn,\nPhòng Xuất nhập khẩu - {shipper}"
+        ),
+        day_offset=0,
+        sent_time="09:15",
+    ),
+    ThreadStep(
+        suffix="02-agentify-hoi-hang-tau",
+        leg="AGENTIFY>HANGTAU",
+        direction=OUTBOUND,
+        partner="carrier",
+        subject="Rate request {pol} - {pod} / {quantity} / ref RFQ-{po_no}",
+        body=(
+            "Dear {carrier} Booking Team,\n\n"
+            "We would like to request an ocean freight quotation for the shipment below.\n\n"
+            "- Port of loading  : {pol}\n"
+            "- Port of discharge: {pod}\n"
+            "- Commodity        : {commodity}\n"
+            "- Equipment        : {quantity}\n"
+            "- Cargo ready date : {etd}\n"
+            "- Incoterm         : FOB\n\n"
+            "Please quote all-in, breaking down ocean freight, surcharges and local "
+            "charges separately, and advise:\n"
+            "  1. Free time at destination\n"
+            "  2. Transit time and routing\n"
+            "  3. Rate validity\n\n"
+            "Our reference: RFQ-{po_no}\n\n"
+            "Thank you and best regards,\nAgentify Forwarding"
+        ),
+        day_offset=0,
+        sent_time="10:40",
+    ),
+    ThreadStep(
+        suffix="03-hang-tau-bao-gia",
+        leg="HANGTAU>AGENTIFY",
+        direction=INBOUND,
+        partner="carrier",
+        subject="RE: Rate request {pol} - {pod} / ref RFQ-{po_no}",
+        body=(
+            "Dear Agentify,\n\n"
+            "Thank you for your enquiry. Please find our quotation below.\n\n"
+            "Ocean Freight 20GP         USD 690.00\n"
+            "Bunker Adjustment Factor   USD  55.00\n"
+            "Container Imbalance Charge USD  40.00\n"
+            "Terminal Handling Charge   USD 125.00\n"
+            "Documentation fee          USD  35.00\n"
+            "Seal fee                   USD   9.00\n\n"
+            "Free time at destination: 7 days\n"
+            "Transit time: direct service on {vessel_voyage}\n"
+            "ETD {pol} {etd} / ETA {pod} {eta}\n"
+            "Rate validity: 14 days from today\n\n"
+            "Best regards,\n{carrier} - Booking Desk"
+        ),
+        day_offset=1,
+        sent_time="14:25",
+    ),
+    ThreadStep(
+        suffix="04-agentify-bao-gia-khach",
+        leg="AGENTIFY>KHACH",
+        direction=OUTBOUND,
+        partner="customer",
+        subject="Báo giá cước {pol} đi {pod} / {po_no}",
+        body=(
+            "Kính gửi Quý khách,\n\n"
+            "Agentify xin gửi báo giá cho lô {commodity} tuyến {pol} - {pod}, "
+            "hãng tàu dự kiến {carrier}.\n\n"
+            "CHI TIẾT PHÍ\n\n"
+            "Cước biển:\n"
+            "  - Ocean Freight 20GP: 690.00 USD\n\n"
+            "Phụ phí:\n"
+            "  - Bunker Adjustment Factor: 55.00 USD\n"
+            "  - Container Imbalance Charge: 40.00 USD\n\n"
+            "Phí local:\n"
+            "  - Terminal Handling Charge: 125.00 USD\n"
+            "  - Documentation fee: 35.00 USD\n"
+            "  - Seal fee: 9.00 USD\n\n"
+            "TỔNG CỘNG: 954.00 USD\n\n"
+            "Thời gian miễn phí lưu container tại {pod}: 7 ngày.\n"
+            "Báo giá có hiệu lực 14 ngày kể từ hôm nay.\n\n"
+            "Rất mong nhận được phản hồi của Quý khách.\n\n"
+            "Trân trọng,\nAgentify Forwarding — Bộ phận Kinh doanh"
+        ),
+        day_offset=1,
+        sent_time="16:50",
+    ),
+)
+
+# Vòng hỏi giá thứ hai. Khác vòng đầu ở hai chỗ có chủ đích: bảng phí của hãng
+# tàu có dòng số lượng 2 (kiểm nhánh chia đơn giá), và có phụ phí LSS + phí
+# telex release (kiểm bảng phân loại mã phí rộng hơn).
+SCENARIO_RFQ_ROUND_TRIP_2: tuple[ThreadStep, ...] = (
+    ThreadStep(
+        suffix="01-khach-hoi-gia",
+        leg="KHACH>AGENTIFY",
+        direction=INBOUND,
+        partner="customer",
+        subject="Cần báo giá {pol} - {pod} cho lô {commodity}",
+        body=(
+            "Chào Agentify,\n\n"
+            "Bên mình có đơn hàng đi Nhật cần báo giá cước.\n"
+            "Hàng: {commodity}, đóng {quantity}.\n"
+            "Lấy hàng tại {pol}, giao {pod}. Hàng sẵn kho ngày {etd}.\n"
+            "Điều kiện FOB, PO {po_no}.\n\n"
+            "Nhờ Agentify báo giá sớm giúp, khách Nhật đang giục chốt lịch tàu.\n\n"
+            "Trân trọng,\n{shipper}"
+        ),
+        day_offset=0,
+        sent_time="08:30",
+    ),
+    ThreadStep(
+        suffix="02-agentify-hoi-hang-tau",
+        leg="AGENTIFY>HANGTAU",
+        direction=OUTBOUND,
+        partner="carrier",
+        subject="Rate request {pol} - {pod} / {quantity} / ref RFQ-{po_no}",
+        body=(
+            "Dear {carrier} Booking Team,\n\n"
+            "We would like to request an ocean freight quotation for the shipment below.\n\n"
+            "- Port of loading  : {pol}\n"
+            "- Port of discharge: {pod}\n"
+            "- Commodity        : {commodity}\n"
+            "- Equipment        : {quantity}\n"
+            "- Cargo ready date : {etd}\n"
+            "- Incoterm         : FOB\n\n"
+            "Please quote all-in, breaking down ocean freight, surcharges and local "
+            "charges separately, and advise:\n"
+            "  1. Free time at destination\n"
+            "  2. Transit time and routing\n"
+            "  3. Rate validity\n\n"
+            "Our reference: RFQ-{po_no}\n\n"
+            "Thank you and best regards,\nAgentify Forwarding"
+        ),
+        day_offset=0,
+        sent_time="11:05",
+    ),
+    ThreadStep(
+        suffix="03-hang-tau-bao-gia",
+        leg="HANGTAU>AGENTIFY",
+        direction=INBOUND,
+        partner="carrier",
+        subject="RE: Rate request {pol} - {pod} / ref RFQ-{po_no}",
+        body=(
+            "Dear Agentify,\n\n"
+            "Please find our quotation for 2 x 40HC below.\n\n"
+            "Ocean Freight 40HC     x2   USD 2,480.00\n"
+            "Bunker Adjustment Factor    USD   130.00\n"
+            "Low Sulphur Surcharge       USD    88.00\n"
+            "Terminal Handling Charge x2 USD   340.00\n"
+            "Documentation fee           USD    35.00\n"
+            "Telex release fee           USD    30.00\n\n"
+            "Free time at destination: 10 days\n"
+            "Transit time: direct service on {vessel_voyage}\n"
+            "ETD {pol} {etd} / ETA {pod} {eta}\n"
+            "Rate validity: 21 days from today\n\n"
+            "Best regards,\n{carrier} - Vietnam Booking Desk"
+        ),
+        day_offset=1,
+        sent_time="15:40",
+    ),
+    ThreadStep(
+        suffix="04-agentify-bao-gia-khach",
+        leg="AGENTIFY>KHACH",
+        direction=OUTBOUND,
+        partner="customer",
+        subject="Báo giá cước {pol} đi {pod} / {po_no}",
+        body=(
+            "Kính gửi Quý khách,\n\n"
+            "Agentify xin gửi báo giá cho lô {commodity} tuyến {pol} - {pod}, "
+            "hãng tàu {carrier}.\n\n"
+            "CHI TIẾT PHÍ\n\n"
+            "Cước biển:\n"
+            "  - Ocean Freight 40HC: 2480.00 USD (x2)\n\n"
+            "Phụ phí:\n"
+            "  - Bunker Adjustment Factor: 130.00 USD\n"
+            "  - Low Sulphur Surcharge: 88.00 USD\n\n"
+            "Phí local:\n"
+            "  - Terminal Handling Charge: 340.00 USD (x2)\n"
+            "  - Documentation fee: 35.00 USD\n"
+            "  - Telex release fee: 30.00 USD\n\n"
+            "TỔNG CỘNG: 3103.00 USD\n\n"
+            "Thời gian miễn phí lưu container tại {pod}: 10 ngày.\n"
+            "Báo giá có hiệu lực 21 ngày kể từ hôm nay.\n\n"
+            "Trân trọng,\nAgentify Forwarding — Bộ phận Kinh doanh"
+        ),
+        day_offset=1,
+        sent_time="17:20",
+    ),
+)
+
+SCENARIOS: dict[str, tuple[ThreadStep, ...]] = {
+    "export_fcl": SCENARIO_EXPORT_FCL,
+    "import_customs": SCENARIO_IMPORT_CUSTOMS,
+    "quote_to_booking": SCENARIO_QUOTE_TO_BOOKING,
+    "delivery_pod": SCENARIO_DELIVERY_POD,
+    "finance_debit": SCENARIO_FINANCE_DEBIT,
+    "rfq_round_trip": SCENARIO_RFQ_ROUND_TRIP,
+    "rfq_round_trip_2": SCENARIO_RFQ_ROUND_TRIP_2,
+}
+
+THREAD_PLANS: tuple[ThreadPlan, ...] = (
+    ThreadPlan("export_yokohama", "export_fcl", date(2026, 6, 13)),
+    ThreadPlan("export_busan", "export_fcl", date(2026, 6, 14)),
+    ThreadPlan("import_shanghai", "import_customs", date(2026, 6, 3)),
+    ThreadPlan("import_busan", "import_customs", date(2026, 6, 5)),
+    ThreadPlan("quote_singapore", "quote_to_booking", date(2026, 6, 15)),
+    ThreadPlan("quote_chennai", "quote_to_booking", date(2026, 6, 17)),
+    ThreadPlan("delivery_binhduong", "delivery_pod", date(2026, 6, 5)),
+    ThreadPlan("delivery_bacninh", "delivery_pod", date(2026, 6, 6)),
+    ThreadPlan("finance_rotterdam", "finance_debit", date(2026, 6, 1)),
+    ThreadPlan("finance_osaka", "finance_debit", date(2026, 5, 29)),
+    ThreadPlan("roundtrip_rfq", "rfq_round_trip", date(2026, 7, 2)),
+    ThreadPlan("roundtrip_rfq_hpn", "rfq_round_trip_2", date(2026, 8, 3)),
+)
+
+
+def build_thread_records(start_seq: int) -> list[EmailRecord]:
+    """Sinh các thư theo kịch bản, đánh số nối tiếp phần viết tay."""
+    records: list[EmailRecord] = []
+    seq = start_seq
+    for plan in THREAD_PLANS:
+        profile = THREAD_PROFILES[plan.profile_key]
+        steps = SCENARIOS[plan.scenario]
+        records.extend(_thread_records(seq, profile, steps, plan.start_date))
+        seq += len(steps)
+    return records
 
 
 def build_records() -> list[EmailRecord]:
@@ -715,6 +1903,7 @@ def build_records() -> list[EmailRecord]:
             ),
         ),
     ]
+    records.extend(build_thread_records(len(records) + 1))
     return records
 
 
@@ -724,10 +1913,17 @@ def write_corpus(records: list[EmailRecord], output_dir: Path = OUTPUT_DIR) -> N
         if child.name.startswith("email_") and child.is_dir():
             shutil.rmtree(child)
 
+    inbound = sum(1 for record in records if record.direction == INBOUND)
+    outbound = len(records) - inbound
+    without_attachment = sum(1 for record in records if not record.pdf_name)
+
     readme = [
         "# Demo Email Corpus",
         "",
         "Generated by `python3 backend/scripts/generate_demo_email_corpus.py`.",
+        "",
+        f"Total: {len(records)} emails — {inbound} mail đến, {outbound} mail đi, "
+        f"{without_attachment} thư không đính kèm.",
         "",
         "Status coverage:",
         "- Đã hoàn tất: OOLU7215245",
@@ -737,42 +1933,89 @@ def write_corpus(records: list[EmailRecord], output_dir: Path = OUTPUT_DIR) -> N
         "- Chờ chứng từ: CMAU1182456",
         "- Thiếu dữ liệu: TEMU5522441",
         "",
-        f"Target recipient for all sample emails: `{TARGET_TO}`",
+        "Thread scenarios (mỗi hồ sơ 5 thư, xen kẽ mail đến và mail đi):",
+        "- export_fcl: MSKU4120885, HLXU8305142",
+        "- import_customs: ZIMU2776311, KMTU5901421",
+        "- quote_to_booking: WHLU6612093, SUDU3347800",
+        "- delivery_pod: PONU7150630, TLLU2089457",
+        "- finance_debit: APZU8741204, BEAU5033684",
+        "",
+        "Vòng hỏi giá khép kín (rfq_round_trip) — 4 chặng chạy trọn trong MỘT hộp thư,",
+        f"tiêu đề mang nhãn `{DEMO_TAG}[CHẶNG]` để biết ai gửi cho ai:",
+        "  1. KHACH>AGENTIFY   — khách hỏi giá",
+        "  2. AGENTIFY>HANGTAU — Agentify hỏi cước hãng tàu",
+        "  3. HANGTAU>AGENTIFY — hãng tàu báo giá (bảng phí nằm trong thân thư)",
+        "  4. AGENTIFY>KHACH   — Agentify báo giá khách",
+        "",
+        "Gửi riêng vòng này:",
+        "  python -m scripts.send_demo_emails --only roundtrip",
+        "Rồi đặt `GMAIL_QUERY=subject:AGENTIFY-DEMO newer_than:7d` để sync đúng bộ đó.",
+        "",
+        f"Test mailbox: `{TARGET_TO}`. Mail đến gửi VÀO hộp thư này; mail đi gửi TỪ",
+        "hộp thư này tới đối tác. Hướng thư nằm ở header `X-Agentify-Direction`",
+        "vì `send_demo_emails.py` ghi đè From/To để mọi thư đều rơi vào cùng hộp thư test.",
         "",
         "Each `email_*` folder contains:",
         "- `title.txt`",
         "- `body.txt`",
         "- `meta.txt`",
-        "- `attachments/*.pdf`",
+        "- `attachments/*.pdf` (không có nếu thư là reply thuần text)",
         "",
         "All PDFs are plain text PDFs intended for text extraction tests.",
+        "",
+        "Lưu ý khi sync Gmail: `GMAIL_QUERY` mặc định là `has:attachment newer_than:7d`,",
+        "nên các thư không đính kèm sẽ bị bỏ qua. Bỏ `has:attachment` nếu muốn test",
+        "đường trích xuất từ body.",
         "",
     ]
     (output_dir / "README.md").write_text("\n".join(readme), encoding="utf-8")
 
+    # Message-ID sinh một lần cho cả lượt chạy rồi tra ngược lại khi nối
+    # In-Reply-To. Vẫn để make_msgid random để chạy lại corpus không đụng
+    # Message-ID cũ — nếu trùng, Gmail sẽ gộp/loại thư ở lần gửi thứ hai.
+    message_ids = {
+        record.slug: make_msgid(idstring=record.slug, domain="agentify.local")
+        for record in records
+    }
+
     for record in records:
         email_dir = output_dir / f"email_{record.seq:02d}_{record.slug}"
-        attachments_dir = email_dir / "attachments"
-        attachments_dir.mkdir(parents=True, exist_ok=True)
+        email_dir.mkdir(parents=True, exist_ok=True)
 
         (email_dir / "title.txt").write_text(record.title + "\n", encoding="utf-8")
         (email_dir / "body.txt").write_text(record.body.strip() + "\n", encoding="utf-8")
 
         profile = PROFILES[record.container_key]
         meta_lines = [
-            f"To: {TARGET_TO}",
+            f"Direction: {record.direction}",
+            f"To: {record.to_email}",
             f"From: {record.from_email}",
             f"Sent At: {record.sent_at}",
             f"Container No: {profile.container_no}",
             f"Booking No: {profile.booking_no}",
             f"Status Bucket: {profile.status_bucket}",
             f"Thread Key: {profile.key}",
-            f"Attachment: {record.pdf_name}",
+            f"Attachment: {record.pdf_name or '(none)'}",
         ]
+        if record.reply_to_slug:
+            meta_lines.append(f"In Reply To: {record.reply_to_slug}")
         (email_dir / "meta.txt").write_text("\n".join(meta_lines) + "\n", encoding="utf-8")
-        pdf_bytes = _build_text_pdf_bytes(list(record.pdf_lines))
-        (attachments_dir / record.pdf_name).write_bytes(pdf_bytes)
-        (email_dir / "email.eml").write_bytes(_build_eml_bytes(record, pdf_bytes))
+
+        pdf_bytes: bytes | None = None
+        if record.pdf_name:
+            attachments_dir = email_dir / "attachments"
+            attachments_dir.mkdir(parents=True, exist_ok=True)
+            pdf_bytes = _build_text_pdf_bytes(list(record.pdf_lines))
+            (attachments_dir / record.pdf_name).write_bytes(pdf_bytes)
+
+        (email_dir / "email.eml").write_bytes(
+            _build_eml_bytes(
+                record,
+                pdf_bytes,
+                message_id=message_ids[record.slug],
+                in_reply_to=message_ids.get(record.reply_to_slug or ""),
+            )
+        )
 
 
 def main() -> None:

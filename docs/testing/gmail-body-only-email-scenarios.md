@@ -1,6 +1,6 @@
 # Gmail Body-Only Email Scenarios
 
-Muc tieu cua file nay la tao bo email mau de gui den `vuphungminh250@gmail.com` nham test:
+Muc tieu cua file nay la tao bo email mau de gui den `nguyendinhtung20072000@gmail.com` nham test:
 
 - Gmail connection da connect duoc chua
 - Sync job co keo email moi ve duoc chua
@@ -24,7 +24,7 @@ Noi cach khac, bo email nay phu hop de test `email sync` truoc, khong phai de xa
 
 Voi moi email ben duoi:
 
-1. Gui email toi `vuphungminh250@gmail.com`
+1. Gui email toi `nguyendinhtung20072000@gmail.com`
 2. Co the gui tu Gmail khac hoac dung chinh mailbox khac trong ban
 3. Sau khi gui xong, vao `/setup`
 4. Tao `sync job` moi va chay sync

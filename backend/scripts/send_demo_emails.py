@@ -15,8 +15,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SOURCE_DIR = ROOT / "demo_email"
-DEFAULT_FROM = "minhvu2592005@gmail.com"
-DEFAULT_TO = "vuphungminh250@gmail.com"
+# Cả gửi lẫn nhận đều là một hộp thư: bộ demo mô phỏng đủ 4 chặng hội thoại
+# (khách → Agentify → hãng tàu → Agentify → khách) trong một tài khoản duy
+# nhất, nên không cần dựng thêm mailbox nào. Ai gửi cho ai đọc ở nhãn tiêu đề
+# `[AGENTIFY-DEMO][CHẶNG]` và ở header `X-Agentify-Original-From/To`.
+DEMO_MAILBOX = "nguyendinhtung20072000@gmail.com"
+DEFAULT_FROM = DEMO_MAILBOX
+DEFAULT_TO = DEMO_MAILBOX
 DEFAULT_SMTP_HOST = "smtp.gmail.com"
 DEFAULT_SMTP_PORT = 465
 DEFAULT_PASSWORD_ENV = "GMAIL_APP_PASSWORD"
@@ -28,10 +33,17 @@ class EmailJob:
     eml_path: Path
 
 
-def discover_email_jobs(source_dir: Path) -> list[EmailJob]:
+def discover_email_jobs(source_dir: Path, only: str | None = None) -> list[EmailJob]:
+    """Các thư sẽ gửi, lọc theo `only` nếu có.
+
+    `only` khớp trên tên thư mục, để gửi riêng một kịch bản (ví dụ `roundtrip`
+    cho vòng hỏi giá) thay vì bắn cả 90 thư vào hộp thư mỗi lần thử.
+    """
     jobs: list[EmailJob] = []
     for child in sorted(source_dir.iterdir()):
         if not child.is_dir() or not child.name.startswith("email_"):
+            continue
+        if only and only.lower() not in child.name.lower():
             continue
         eml_path = child / "email.eml"
         if eml_path.exists():
@@ -128,6 +140,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--smtp-password-env", default=DEFAULT_PASSWORD_ENV)
     parser.add_argument("--delay-seconds", type=float, default=1.0)
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--only",
+        default=None,
+        help="Chỉ gửi thư có tên thư mục chứa chuỗi này, ví dụ: roundtrip",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if args.smtp_username is None:
@@ -137,11 +154,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    jobs = discover_email_jobs(args.source_dir)
+    jobs = discover_email_jobs(args.source_dir, only=args.only)
     if args.limit is not None:
         jobs = jobs[: args.limit]
     if not jobs:
-        raise SystemExit(f"No email.eml files found in {args.source_dir}")
+        raise SystemExit(
+            f"No email.eml files found in {args.source_dir}"
+            + (f" matching --only {args.only!r}" if args.only else "")
+        )
 
     smtp_password = ""
     if not args.dry_run:
