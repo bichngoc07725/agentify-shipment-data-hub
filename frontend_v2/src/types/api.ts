@@ -480,6 +480,78 @@ export interface ChargeDraft {
   extraction_error: string | null;
 }
 
+export type BookingStatus = 'requested' | 'confirmed' | 'amended' | 'cancelled';
+
+export interface Booking {
+  id: string;
+  container_id: string;
+  container_no: string | null;
+  quote_id: string | null;
+  quote_no: string | null;
+  booking_no: string | null;
+  status: BookingStatus;
+  carrier: string | null;
+  vessel: string | null;
+  voyage: string | null;
+  pol: string | null;
+  pod: string | null;
+  etd: string | null;
+  eta: string | null;
+  si_cutoff_at: string | null;
+  vgm_cutoff_at: string | null;
+  gate_in_cutoff_at: string | null;
+  container_type: string | null;
+  container_qty: number | null;
+  empty_pickup_depot: string | null;
+  freight_rate: string | null;
+  currency: string;
+  note: string | null;
+  created_by: string;
+  next_cutoff_label: string | null;
+  next_cutoff_at: string | null;
+  hours_to_next_cutoff: number | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface BookingListResponse {
+  items: Booking[];
+  total: number;
+}
+
+/** Giá trị pipeline đã bóc được từ mail hãng tàu, dùng điền sẵn form đặt chỗ. */
+/** Gợi ý điền form đặt chỗ. Đến từ hai nguồn tuỳ giai đoạn: mail hãng tàu đã
+ *  bóc tách (khi đã có container), hoặc báo giá đã chốt (khi chưa có). */
+export type BookingPrefill = Partial<
+  Record<
+    | 'booking_no' | 'vessel' | 'voyage' | 'pol' | 'pod' | 'etd' | 'eta'
+    | 'container_type' | 'container_qty' | 'customer_name' | 'commodity',
+    string
+  >
+>;
+
+export interface BookingInput {
+  container_no?: string | null;
+  quote_id?: string | null;
+  booking_no?: string | null;
+  status: BookingStatus;
+  carrier?: string | null;
+  vessel?: string | null;
+  voyage?: string | null;
+  pol?: string | null;
+  pod?: string | null;
+  etd?: string | null;
+  eta?: string | null;
+  si_cutoff_at?: string | null;
+  vgm_cutoff_at?: string | null;
+  gate_in_cutoff_at?: string | null;
+  container_type?: string | null;
+  container_qty?: number | null;
+  empty_pickup_depot?: string | null;
+  freight_rate?: string | null;
+  currency?: string;
+  note?: string | null;
+}
 
 export type ShipmentStage =
   | 'rfq'

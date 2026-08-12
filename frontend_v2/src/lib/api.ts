@@ -50,7 +50,7 @@ function qs(p: Record<string, unknown>): string {
 
 import type {
   AdminUser, AdminUserListResponse, AppHomeResponse, AuditLogListResponse,
-  ContainerDetailResponse,
+  Booking, BookingInput, BookingListResponse, BookingPrefill, ContainerDetailResponse,
   ContainerFact, ContainerFactsResponse, ContainerListResponse, ContainerRiskProfile, CustomsDeclaration,
   CustomsDeclarationListResponse, DebitNote, DebitNoteInput, DebitNoteListResponse,
   EmailDetail, EmailListResponse,
@@ -185,6 +185,23 @@ export const api = {
     req<CustomsDeclaration>(`/api/v1/customs/declarations/${encodeURIComponent(id)}`),
   getContainerCustoms: (no: string) =>
     req<CustomsDeclarationListResponse>(`/api/v1/containers/${encodeURIComponent(no)}/customs`),
+  createBooking: (body: BookingInput) =>
+    req<Booking>('/api/v1/bookings', { method: 'POST', body: JSON.stringify(body) }),
+  updateBooking: (id: string, body: Omit<BookingInput, 'container_no'>) =>
+    req<Booking>(`/api/v1/bookings/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  getContainerBookings: (no: string) =>
+    req<BookingListResponse>(`/api/v1/containers/${encodeURIComponent(no)}/bookings`),
+  getBookingPrefill: (no: string) =>
+    req<BookingPrefill>(`/api/v1/containers/${encodeURIComponent(no)}/booking-prefill`),
+  getQuoteBookings: (quoteId: string) =>
+    req<BookingListResponse>(`/api/v1/quotes/${encodeURIComponent(quoteId)}/bookings`),
+  getQuoteBookingPrefill: (quoteId: string) =>
+    req<BookingPrefill>(`/api/v1/quotes/${encodeURIComponent(quoteId)}/booking-prefill`),
+  getBookingRequestMail: (bookingId: string) =>
+    req<ComposedMail>(`/api/v1/bookings/${encodeURIComponent(bookingId)}/request-mail`),
   getQuoteDraftFromEmail: (emailId: string) =>
     req<QuoteDraft>(`/api/v1/emails/${encodeURIComponent(emailId)}/quote-draft`),
   getChargeDraftFromEmail: (emailId: string) =>

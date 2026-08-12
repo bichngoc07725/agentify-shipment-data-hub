@@ -383,6 +383,84 @@ class QuoteCharge(Base):
     quote = relationship("Quote", back_populates="charges")
 
 
+class BookingStatus(str, enum.Enum):
+    """Vòng đời một chỗ đặt trên tàu. `requested` = đã hỏi hãng tàu nhưng chưa
+    có số booking; `amended` = hãng tàu đổi tàu/lịch sau khi đã xác nhận —
+    trạng thái phải phân biệt được, vì đổi lịch là lúc giờ cut-off dịch chuyển
+    và lô hàng có nguy cơ rớt chuyến."""
+
+    REQUESTED = "requested"
+    CONFIRMED = "confirmed"
+    AMENDED = "amended"
+    CANCELLED = "cancelled"
+
+
+class Booking(Base):
+    """Chỗ đặt trên tàu (Bước 2). Thuộc sở hữu `ops`.
+
+    Tách khỏi `container_facts` vì đây là thứ nhân viên CHỦ ĐỘNG nhập và sửa
+    theo tiến trình đàm phán với hãng tàu, không phải giá trị bóc ra từ chứng
+    từ — trộn vào facts sẽ mất phân biệt giữa "hệ thống đọc được" và "người
+    quyết định". Giá cước ở đây là giá MUA từ hãng tàu; giá BÁN cho khách nằm
+    ở `Quote`, và chênh lệch hai bên là biên lợi nhuận của lô.
+    """
+
+    __tablename__ = "bookings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Nullable có chủ đích: lúc gửi yêu cầu đặt chỗ, hãng tàu CHƯA cấp
+    # container — số container chỉ có khi booking được xác nhận. Bắt buộc phải
+    # có container ở đây đồng nghĩa không thể ghi nhận trạng thái `requested`,
+    # tức là mất đúng khoảnh khắc mà bước này cần được theo dõi.
+    container_id = Column(
+        UUID(as_uuid=True), ForeignKey("containers.id"), nullable=True, index=True
+    )
+    # Báo giá đã gửi khách cho lô này: vừa để so giá mua với giá bán, vừa là
+    # nguồn thông tin để điền form đặt chỗ khi chưa có container nào.
+    quote_id = Column(UUID(as_uuid=True), ForeignKey("quotes.id"), nullable=True)
+
+    booking_no = Column(String(100), nullable=True, index=True)
+    status = Column(
+        Enum(
+            BookingStatus,
+            name="booking_status",
+            native_enum=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False,
+        default=BookingStatus.REQUESTED,
+    )
+    carrier = Column(String(255), nullable=True)
+    vessel = Column(String(255), nullable=True)
+    voyage = Column(String(100), nullable=True)
+    pol = Column(String(255), nullable=True)
+    pod = Column(String(255), nullable=True)
+    etd = Column(Date, nullable=True)
+    eta = Column(Date, nullable=True)
+
+    # Ba mốc chốt của bước đặt chỗ. Đây là lý do bảng này tồn tại: rủi ro gốc
+    # của Bước 2 là trễ giờ chốt → rớt chuyến → phát sinh phí lưu kho.
+    si_cutoff_at = Column(DateTime(timezone=True), nullable=True)
+    vgm_cutoff_at = Column(DateTime(timezone=True), nullable=True)
+    gate_in_cutoff_at = Column(DateTime(timezone=True), nullable=True)
+
+    container_type = Column(String(50), nullable=True)
+    container_qty = Column(Integer, nullable=True)
+    empty_pickup_depot = Column(String(255), nullable=True)
+
+    # Giá cước hãng tàu chào (giá mua).
+    freight_rate = Column(Numeric(14, 2), nullable=True)
+    currency = Column(String(10), nullable=False, default="USD")
+
+    note = Column(Text, nullable=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    container = relationship("Container")
+    quote = relationship("Quote")
+
+
 class DebitNote(Base):
     """Real costs invoiced for a shipment (carrier debit note / invoice) —
     the "actual" side reconciliation compares against `Quote` (the "quoted"

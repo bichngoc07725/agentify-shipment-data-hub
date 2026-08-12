@@ -711,6 +711,103 @@ class ChargeDraftResponse(BaseModel):
     extraction_error: str | None = None
 
 
+BookingStatusLiteral = Literal["requested", "confirmed", "amended", "cancelled"]
+
+
+class BookingCreateRequest(BaseModel):
+    """Bước 2 — đặt chỗ trên tàu.
+
+    KHÔNG trường nào bắt buộc, kể cả container: lúc gửi yêu cầu đặt chỗ thì
+    chưa có số booking, chưa có tên tàu, và hãng tàu chưa cấp container. Bắt
+    nhập đủ ở bước này đồng nghĩa ép nhân viên bịa số — đúng thứ hệ thống tồn
+    tại để chống. Container được gắn vào sau, khi hãng tàu xác nhận.
+    """
+
+    container_no: str | None = None
+    quote_id: UUID | None = None
+    booking_no: str | None = None
+    status: BookingStatusLiteral = "requested"
+    carrier: str | None = None
+    vessel: str | None = None
+    voyage: str | None = None
+    pol: str | None = None
+    pod: str | None = None
+    etd: date | None = None
+    eta: date | None = None
+    si_cutoff_at: datetime | None = None
+    vgm_cutoff_at: datetime | None = None
+    gate_in_cutoff_at: datetime | None = None
+    container_type: str | None = None
+    container_qty: int | None = None
+    empty_pickup_depot: str | None = None
+    freight_rate: Decimal | None = None
+    currency: str = "USD"
+    note: str | None = None
+
+
+class BookingUpdateRequest(BaseModel):
+    quote_id: UUID | None = None
+    booking_no: str | None = None
+    status: BookingStatusLiteral = "requested"
+    carrier: str | None = None
+    vessel: str | None = None
+    voyage: str | None = None
+    pol: str | None = None
+    pod: str | None = None
+    etd: date | None = None
+    eta: date | None = None
+    si_cutoff_at: datetime | None = None
+    vgm_cutoff_at: datetime | None = None
+    gate_in_cutoff_at: datetime | None = None
+    container_type: str | None = None
+    container_qty: int | None = None
+    empty_pickup_depot: str | None = None
+    freight_rate: Decimal | None = None
+    currency: str = "USD"
+    note: str | None = None
+
+
+class BookingResponse(BaseModel):
+    id: UUID
+    # Rỗng khi chỗ đặt mới ở trạng thái đã gửi yêu cầu — hãng tàu chưa cấp
+    # container. Được gắn vào khi booking được xác nhận.
+    container_id: UUID | None = None
+    container_no: str | None = None
+    quote_id: UUID | None
+    quote_no: str | None = None
+    booking_no: str | None
+    status: BookingStatusLiteral
+    carrier: str | None
+    vessel: str | None
+    voyage: str | None
+    pol: str | None
+    pod: str | None
+    etd: date | None
+    eta: date | None
+    si_cutoff_at: datetime | None
+    vgm_cutoff_at: datetime | None
+    gate_in_cutoff_at: datetime | None
+    container_type: str | None
+    container_qty: int | None
+    empty_pickup_depot: str | None
+    freight_rate: Decimal | None
+    currency: str
+    note: str | None
+    created_by: UUID
+    # Mốc chốt gần nhất còn hiệu lực và số giờ còn lại — tính sẵn ở server để
+    # mọi client hiển thị cùng một con số thay vì mỗi nơi tự trừ ngày một kiểu.
+    next_cutoff_label: str | None = None
+    next_cutoff_at: datetime | None = None
+    hours_to_next_cutoff: float | None = None
+    created_at: datetime
+    updated_at: datetime | None
+
+
+class BookingListResponse(BaseModel):
+    items: list[BookingResponse]
+    total: int
+
+
 class ShipmentCreateRequest(BaseModel):
     customer_name: str | None = None
     direction: Literal["import", "export"] | None = None

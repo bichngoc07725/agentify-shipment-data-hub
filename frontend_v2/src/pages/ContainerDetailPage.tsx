@@ -6,7 +6,9 @@ import { useAuth } from '../lib/auth';
 import {
   canEditContainerFact, canViewCostData, canViewFieldImages,
   canCreateCustomsDeclaration, canEditCustomsDeclaration, canViewCustomsDeclaration,
+  canViewBooking,
 } from '../lib/permissions';
+import { BookingCard } from '../components/BookingCard';
 import type {
   ContainerDetailResponse, ContainerFactsResponse, ContainerFact, ContainerRiskProfile, Quote,
   FieldImageListItem, Reconciliation, CustomsDeclaration, CustomsChannel,
@@ -417,6 +419,11 @@ export function ContainerDetailPage() {
       )}
 
       {/* Customs declarations + phân luồng history (GĐ7A) */}
+      {/* Bước 2 đứng trước Bước 4 trên trang hồ sơ, đúng thứ tự lô hàng đi qua. */}
+      {containerNo && canViewBooking(user?.role) && (
+        <BookingCard containerNo={containerNo} role={user?.role} />
+      )}
+
       {canViewCustomsDeclaration(user?.role) && (
         <section>
           <h2 style={SECTION_HEADING}>Hải quan</h2>
