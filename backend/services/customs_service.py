@@ -5,6 +5,7 @@ See `plan/phase_7_customs_kanban_brief.md` Part 7A.
 
 from __future__ import annotations
 
+import re
 from uuid import UUID
 
 from sqlalchemy import select
@@ -48,6 +49,102 @@ async def _prefill_hs_code(db: AsyncSession, container_id: UUID) -> str | None:
         return None
     normalized, raw = row
     return normalized or raw
+
+
+# Fact mà thông báo hải quan đã được bóc tách ra, dùng điền sẵn form.
+_PREFILL_FACT_FIELDS = {
+    "customs_lane": "channel",
+    "customs_registered_at": "registered_at",
+    "customs_cleared_at": "cleared_at",
+    "customs_tax_amount": "tax_amount",
+    "hs_code": "hs_code",
+    "declaration_no": "declaration_no",
+}
+
+# Hải quan Việt Nam gọi luồng bằng màu; LLM có thể trả tiếng Anh lẫn tiếng Việt.
+_LANE_ALIASES = {
+    "green": "green", "xanh": "green", "luong xanh": "green", "luồng xanh": "green",
+    "yellow": "yellow", "vang": "yellow", "vàng": "yellow", "luồng vàng": "yellow",
+    "red": "red", "do": "red", "đỏ": "red", "luồng đỏ": "red",
+}
+
+
+def normalize_lane(value: str | None) -> str | None:
+    """Đưa cách gọi luồng về đúng ba giá trị enum, hoặc None nếu không chắc.
+
+    Đoán bừa một luồng là chuyện nguy hiểm: luồng quyết định lô có bị kiểm hoá
+    hay không, và một cảnh báo luồng Đỏ sai làm cả nhóm chạy nhầm việc.
+    """
+    if not value:
+        return None
+    return _LANE_ALIASES.get(value.strip().lower())
+
+
+_AMOUNT_RE = re.compile(r"\d[\d.,]*")
+
+
+def numeric_amount(value: str | None) -> str | None:
+    """Bỏ ký hiệu tiền tệ và dấu phân nhóm: `"VND 42,150,000"` -> `"42150000"`.
+
+    Ô Tiền thuế trên form là `input type="number"`; đưa vào một chuỗi có chữ
+    thì trình duyệt lặng lẽ bỏ trắng ô, trong khi băng thông báo vẫn khoe "đã
+    điền N trường" — Ops tưởng đã có thuế rồi lưu một tờ khai thiếu tiền.
+    """
+    if not value:
+        return None
+    match = _AMOUNT_RE.search(value)
+    if match is None:
+        return None
+    raw = match.group(0).rstrip(".,")
+    # Số Việt Nam dùng `.` phân nhóm nghìn và `,` thập phân; số Anh–Mỹ ngược
+    # lại. Dấu nào xuất hiện sau cùng và chỉ một lần thì đó là dấu thập phân.
+    last_dot, last_comma = raw.rfind("."), raw.rfind(",")
+    decimal_sep = "." if last_dot > last_comma else ","
+    if raw.count(decimal_sep) == 1 and len(raw) - raw.rfind(decimal_sep) - 1 in (1, 2):
+        whole, _, frac = raw.rpartition(decimal_sep)
+        cleaned = re.sub(r"\D", "", whole) + "." + frac
+    else:
+        cleaned = re.sub(r"\D", "", raw)
+    return cleaned or None
+
+
+async def get_declaration_prefill(
+    db: AsyncSession, container_no: str
+) -> dict[str, str] | None:
+    """Giá trị hệ thống đã đọc được từ thông báo hải quan, để điền sẵn form."""
+    container = await get_container_by_no(db, container_no)
+    if container is None:
+        return None
+
+    result = await db.execute(
+        select(
+            ContainerFact.field_name,
+            ContainerFact.normalized_value,
+            ContainerFact.field_value,
+        )
+        .where(
+            ContainerFact.container_id == container.id,
+            ContainerFact.field_name.in_(_PREFILL_FACT_FIELDS),
+        )
+        .order_by(
+            ContainerFact.source_sent_at.desc().nullslast(),
+            ContainerFact.created_at.desc(),
+        )
+    )
+
+    prefill: dict[str, str] = {}
+    for field_name, normalized, raw in result.all():
+        target = _PREFILL_FACT_FIELDS[field_name]
+        if target in prefill:
+            continue
+        value = normalized or raw
+        if target == "channel":
+            value = normalize_lane(value)
+        if target == "tax_amount":
+            value = numeric_amount(value)
+        if value:
+            prefill[target] = str(value)
+    return prefill
 
 
 async def create_declaration(

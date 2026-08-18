@@ -18,6 +18,12 @@ from datetime import UTC, date, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from services.document_crosscheck_service import (
+    COMPARED_DOCUMENT_TYPES,
+    COMPARED_FIELDS,
+    DOCUMENT_LABELS,
+    find_mismatches,
+)
 from db.models import (
     Attachment,
     Container,
@@ -28,6 +34,11 @@ from db.models import (
 
 # Days before free time runs out that we start warning.
 FREE_TIME_WARNING_DAYS = 3
+# Luồng Đỏ phải kiểm hoá thực tế, thường mất thêm 1–2 ngày trước khi thông quan.
+# Con số này không làm hạn free time dịch đi — hãng tàu đâu có gia hạn vì hải
+# quan kiểm hàng — mà làm cảnh báo nổi lên SỚM hơn đúng chừng ấy ngày, để còn
+# kịp xoay xở trước khi phí lưu container bắt đầu chạy.
+RED_LANE_INSPECTION_DAYS = 2
 # Free days assumed when the arrival notice did not state a number. Kept
 # deliberately low so the warning fires early rather than late; the exception
 # says the value was assumed.
@@ -174,6 +185,8 @@ def detect_exceptions(
     documents_mentioned: set[str] | None = None,
     customs_channel: str | None = None,
     customs_declaration_no: str | None = None,
+    customs_cleared: bool = False,
+    document_mismatches: list | None = None,
 ) -> list[ShipmentException]:
     """Apply every rule to one container and return the exceptions that fired.
 
@@ -195,7 +208,15 @@ def detect_exceptions(
     deadline, assumed = compute_free_time_deadline(container)
     if deadline is not None and not has_delivery_order:
         days_remaining = (deadline - today).days
-        if days_remaining <= FREE_TIME_WARNING_DAYS:
+        # Lô đang bị kiểm hoá thì ngày lấy được hàng lùi lại, nhưng đồng hồ free
+        # time vẫn chạy. Đây đúng là mối nối mà bảng nghiệp vụ chỉ ra: rơi luồng
+        # Đỏ dẫn tới phát sinh phí lưu container. Trước đây hai luật này rời
+        # nhau nên hệ thống báo hai chuyện độc lập thay vì một chuỗi nhân quả.
+        awaiting_inspection = customs_channel == "red" and not customs_cleared
+        effective_days = days_remaining - (
+            RED_LANE_INSPECTION_DAYS if awaiting_inspection else 0
+        )
+        if effective_days <= FREE_TIME_WARNING_DAYS:
             overdue = days_remaining < 0
             basis = "ATA" if container.ata else "ETA"
             assumed_note = (
@@ -219,8 +240,20 @@ def detect_exceptions(
                         f"({abs(days_remaining)} ngày "
                         f"{'quá hạn' if overdue else 'còn lại'}) "
                         f"nhưng chưa thấy D/O trong dữ liệu Agentify.{assumed_note}"
+                        + (
+                            f" Lô đang ở Luồng Đỏ chưa thông quan — kiểm hoá "
+                            f"thường mất thêm {RED_LANE_INSPECTION_DAYS} ngày, "
+                            "nên cảnh báo được đẩy lên sớm."
+                            if awaiting_inspection
+                            else ""
+                        )
                     ),
-                    evidence=_free_time_evidence(container, basis),
+                    evidence=_free_time_evidence(container, basis)
+                    + (
+                        [f"Luồng Đỏ: dự kiến chậm thêm {RED_LANE_INSPECTION_DAYS} ngày"]
+                        if awaiting_inspection
+                        else []
+                    ),
                     due_date=deadline,
                     days_remaining=days_remaining,
                 )
@@ -343,7 +376,29 @@ def detect_exceptions(
             )
         )
 
-    if customs_channel in ("yellow", "red"):
+    for mismatch in document_mismatches or []:
+        exceptions.append(
+            ShipmentException(
+                container_no=container.container_no,
+                code="document_mismatch",
+                severity=SEVERITY_WARNING,
+                title=f"Chứng từ vênh nhau: {mismatch.field_label}",
+                detail=(
+                    f"{mismatch.describe()}. Hai chứng từ khai khác nhau về cùng "
+                    "một số liệu — đối chiếu và sửa trước khi khai hải quan, vì "
+                    "sau khi truyền tờ khai thì sửa tốn tiền."
+                ),
+                evidence=[
+                    f"{DOCUMENT_LABELS.get(doc, doc)}: {value}"
+                    for doc, value in sorted(mismatch.values_by_document.items())
+                ],
+            )
+        )
+
+    # Đã thông quan thì luồng chỉ còn là lịch sử, không còn là việc phải làm.
+    # Để cảnh báo chạy tiếp khiến trang Ngoại lệ tích tụ toàn lô đã xong — mà
+    # cảnh báo nào cũng đỏ thì chẳng cảnh báo nào còn nghĩa lý.
+    if customs_channel in ("yellow", "red") and not customs_cleared:
         is_red = customs_channel == "red"
         label = "Luồng Đỏ" if is_red else "Luồng Vàng"
         declaration_note = (
@@ -405,6 +460,8 @@ def build_risk_profile(
     documents_mentioned: set[str] | None = None,
     customs_channel: str | None = None,
     customs_declaration_no: str | None = None,
+    customs_cleared: bool = False,
+    document_mismatches: list | None = None,
 ) -> ContainerRiskProfile:
     on_file = canonical_document_types(document_types)
     mentioned = canonical_document_types(documents_mentioned or set())
@@ -431,6 +488,8 @@ def build_risk_profile(
             documents_mentioned=mentioned,
             customs_channel=customs_channel,
             customs_declaration_no=customs_declaration_no,
+            customs_cleared=customs_cleared,
+            document_mismatches=document_mismatches,
         ),
         documents_present=present,
         documents_mentioned=mentioned_only,
@@ -467,6 +526,8 @@ async def load_container_context(
             "last_source_at": None,
             "customs_channel": None,
             "customs_declaration_no": None,
+            "customs_cleared": False,
+            "facts_by_field": {},
         }
         for container_id in container_ids
     }
@@ -540,6 +601,7 @@ async def load_container_context(
             CustomsDeclaration.container_id,
             CustomsDeclaration.channel,
             CustomsDeclaration.declaration_no,
+            CustomsDeclaration.cleared_at,
         )
         .where(CustomsDeclaration.container_id.in_(container_ids))
         .order_by(
@@ -547,13 +609,38 @@ async def load_container_context(
             CustomsDeclaration.created_at.desc(),
         )
     )
+    # Số liệu lô hàng theo từng loại chứng từ, để đối chiếu chéo Bước 3.
+    crosscheck_rows = await db.execute(
+        select(
+            ContainerFact.container_id,
+            ContainerFact.field_name,
+            ContainerFact.document_type,
+            ContainerFact.normalized_value,
+            ContainerFact.field_value,
+        )
+        .where(
+            ContainerFact.container_id.in_(container_ids),
+            ContainerFact.field_name.in_(COMPARED_FIELDS),
+            ContainerFact.document_type.in_(COMPARED_DOCUMENT_TYPES),
+        )
+        .order_by(
+            ContainerFact.source_sent_at.desc().nullslast(),
+            ContainerFact.created_at.desc(),
+        )
+    )
+    for container_id, field_name, document_type, normalized, raw in crosscheck_rows.all():
+        by_field = context[container_id]["facts_by_field"].setdefault(field_name, {})
+        # Bản ghi đầu tiên gặp là mới nhất; chứng từ sửa lại thì lấy bản sau.
+        by_field.setdefault(document_type, normalized or raw)
+
     seen_declarations: set = set()
-    for container_id, channel, declaration_no in customs_rows.all():
+    for container_id, channel, declaration_no, cleared_at in customs_rows.all():
         if container_id in seen_declarations:
             continue
         seen_declarations.add(container_id)
         context[container_id]["customs_channel"] = channel.value if channel else None
         context[container_id]["customs_declaration_no"] = declaration_no
+        context[container_id]["customs_cleared"] = cleared_at is not None
 
     return context
 
@@ -654,6 +741,8 @@ async def list_shipment_exceptions(
             documents_mentioned=ctx.get("documents_mentioned", set()),
             customs_channel=ctx.get("customs_channel"),
             customs_declaration_no=ctx.get("customs_declaration_no"),
+            customs_cleared=ctx.get("customs_cleared", False),
+            document_mismatches=find_mismatches(ctx.get("facts_by_field") or {}),
         )
         exceptions.extend(
             _drop_actioned(
@@ -690,6 +779,8 @@ async def get_container_risk_profile(
         documents_mentioned=ctx.get("documents_mentioned", set()),
         customs_channel=ctx.get("customs_channel"),
         customs_declaration_no=ctx.get("customs_declaration_no"),
+        customs_cleared=ctx.get("customs_cleared", False),
+        document_mismatches=find_mismatches(ctx.get("facts_by_field") or {}),
     )
 
     suppressions = await load_exception_suppressions(db, [container.id])

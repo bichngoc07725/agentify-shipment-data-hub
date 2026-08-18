@@ -434,6 +434,153 @@ export interface CustomsDeclarationListResponse {
   total: number;
 }
 
+/** Bản nháp báo giá rút từ một email hỏi giá. Ô vắng = không tìm thấy trong
+ *  email, không phải bằng rỗng. */
+export interface QuoteDraftFields {
+  customer_name?: string | null;
+  pol?: string | null;
+  pod?: string | null;
+  commodity?: string | null;
+  container_type?: string | null;
+  container_qty?: number | null;
+  gross_weight_kg?: string | null;
+  cargo_ready_date?: string | null;
+  incoterm?: string | null;
+  payment_term?: string | null;
+}
+
+export interface QuoteDraft {
+  source_email_id: string;
+  source_subject: string | null;
+  source_from: string | null;
+  fields: QuoteDraftFields;
+  fields_found: string[];
+  extraction_error: string | null;
+}
+
+/** Thư soạn sẵn. Agentify không gửi — người dùng bấm gửi trong hộp thư của họ. */
+export interface ComposedMail {
+  subject: string;
+  body: string;
+}
+
+export interface ChargeDraftLine {
+  charge_group: ChargeGroup;
+  charge_code: string;
+  description: string;
+  unit_price: string;
+  currency: string;
+  quantity: string;
+}
+
+export interface ChargeDraft {
+  source_email_id: string;
+  source_subject: string | null;
+  source_from: string | null;
+  charges: ChargeDraftLine[];
+  extraction_error: string | null;
+}
+
+export interface WorksheetField {
+  label: string;
+  value: string | null;
+  source_hint: string;
+  is_missing: boolean;
+  /** Chuỗi dựng sẵn ở server để web và file .docx hiển thị y hệt nhau. */
+  display: string;
+}
+
+export interface WorksheetSection {
+  title: string;
+  fields: WorksheetField[];
+}
+
+export interface CustomsWorksheet {
+  container_no: string;
+  sections: WorksheetSection[];
+  field_count: number;
+  missing_count: number;
+}
+
+export type BookingStatus = 'requested' | 'confirmed' | 'amended' | 'cancelled';
+
+export interface Booking {
+  id: string;
+  container_id: string;
+  container_no: string | null;
+  quote_id: string | null;
+  quote_no: string | null;
+  booking_no: string | null;
+  status: BookingStatus;
+  carrier: string | null;
+  vessel: string | null;
+  voyage: string | null;
+  pol: string | null;
+  pod: string | null;
+  etd: string | null;
+  eta: string | null;
+  si_cutoff_at: string | null;
+  vgm_cutoff_at: string | null;
+  gate_in_cutoff_at: string | null;
+  container_type: string | null;
+  container_qty: number | null;
+  empty_pickup_depot: string | null;
+  freight_rate: string | null;
+  currency: string;
+  note: string | null;
+  created_by: string;
+  next_cutoff_label: string | null;
+  next_cutoff_at: string | null;
+  hours_to_next_cutoff: number | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface BookingListResponse {
+  items: Booking[];
+  total: number;
+}
+
+/** Giá trị pipeline đã bóc được từ mail hãng tàu, dùng điền sẵn form đặt chỗ. */
+/** Gợi ý điền form đặt chỗ. Đến từ hai nguồn tuỳ giai đoạn: mail hãng tàu đã
+ *  bóc tách (khi đã có container), hoặc báo giá đã chốt (khi chưa có). */
+export type BookingPrefill = Partial<
+  Record<
+    | 'booking_no' | 'vessel' | 'voyage' | 'pol' | 'pod' | 'etd' | 'eta'
+    | 'container_type' | 'container_qty' | 'customer_name' | 'commodity'
+    // Ba mốc chốt về dưới dạng `YYYY-MM-DDTHH:MM`, đúng thứ ô `datetime-local`
+    // nhận — giữ nguyên giờ ghi trên thư hãng tàu, không quy đổi múi giờ.
+    | 'si_cutoff_at' | 'vgm_cutoff_at' | 'gate_in_cutoff_at' | 'empty_pickup_depot'
+    // Chỉ nguồn "đọc từ một thư cụ thể" trả về hai ô này: đó là thư xác nhận,
+    // nơi container lần đầu có số và hãng tàu tự xưng tên.
+    | 'container_no' | 'carrier',
+    string
+  >
+>;
+
+export interface BookingInput {
+  container_no?: string | null;
+  quote_id?: string | null;
+  booking_no?: string | null;
+  status: BookingStatus;
+  carrier?: string | null;
+  vessel?: string | null;
+  voyage?: string | null;
+  pol?: string | null;
+  pod?: string | null;
+  etd?: string | null;
+  eta?: string | null;
+  si_cutoff_at?: string | null;
+  vgm_cutoff_at?: string | null;
+  gate_in_cutoff_at?: string | null;
+  container_type?: string | null;
+  container_qty?: number | null;
+  empty_pickup_depot?: string | null;
+  freight_rate?: string | null;
+  currency?: string;
+  note?: string | null;
+}
+
 export type ShipmentStage =
   | 'rfq'
   | 'booking'

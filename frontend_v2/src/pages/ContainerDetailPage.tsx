@@ -6,7 +6,10 @@ import { useAuth } from '../lib/auth';
 import {
   canEditContainerFact, canViewCostData, canViewFieldImages,
   canCreateCustomsDeclaration, canEditCustomsDeclaration, canViewCustomsDeclaration,
+  canViewBooking,
 } from '../lib/permissions';
+import { BookingCard } from '../components/BookingCard';
+import { CustomsWorksheetCard } from '../components/CustomsWorksheetCard';
 import type {
   ContainerDetailResponse, ContainerFactsResponse, ContainerFact, ContainerRiskProfile, Quote,
   FieldImageListItem, Reconciliation, CustomsDeclaration, CustomsChannel,
@@ -95,6 +98,35 @@ export function ContainerDetailPage() {
   const [customsDeclarationNo, setCustomsDeclarationNo] = useState('');
   const [customsChannel, setCustomsChannel] = useState<CustomsChannel | ''>('');
   const [customsHsCode, setCustomsHsCode] = useState('');
+  const [customsRegisteredAt, setCustomsRegisteredAt] = useState('');
+  const [customsClearedAt, setCustomsClearedAt] = useState('');
+  const [customsTaxAmount, setCustomsTaxAmount] = useState('');
+  const [customsPrefillNote, setCustomsPrefillNote] = useState<string | null>(null);
+
+  async function applyCustomsPrefill() {
+    if (!containerNo) return;
+    setCustomsPrefillNote(null);
+    try {
+      const p = await api.getCustomsPrefill(containerNo);
+      const keys = Object.keys(p);
+      if (keys.length === 0) {
+        setCustomsPrefillNote('Không tìm thấy trong Agentify — chưa có thông báo hải quan nào của lô này.');
+        return;
+      }
+      if (p.declaration_no) setCustomsDeclarationNo(p.declaration_no);
+      if (p.hs_code) setCustomsHsCode(p.hs_code);
+      if (p.channel) setCustomsChannel(p.channel as CustomsChannel);
+      if (p.registered_at) setCustomsRegisteredAt(p.registered_at.slice(0, 10));
+      if (p.cleared_at) setCustomsClearedAt(p.cleared_at.slice(0, 10));
+      if (p.tax_amount) setCustomsTaxAmount(p.tax_amount);
+      setCustomsPrefillNote(
+        `Đã điền ${keys.length} trường từ thông báo hải quan đã đọc (${keys.join(', ')}). ` +
+        'Đây là gợi ý — kiểm tra lại trước khi lưu.',
+      );
+    } catch {
+      setCustomsPrefillNote('Không đọc được dữ liệu gợi ý.');
+    }
+  }
 
   // Kept callable so resolving an exception can re-read the risk profile —
   // the backend hides an actioned exception, so the refetch is what removes
@@ -132,10 +164,15 @@ export function ContainerDetailPage() {
         declaration_no: customsDeclarationNo || undefined,
         channel: customsChannel || undefined,
         hs_code: customsHsCode || undefined,
+        registered_at: customsRegisteredAt ? `${customsRegisteredAt}T00:00:00Z` : undefined,
+        cleared_at: customsClearedAt ? `${customsClearedAt}T00:00:00Z` : undefined,
+        tax_amount: customsTaxAmount || undefined,
       });
       setCustomsDeclarations(prev => [created, ...(prev ?? [])]);
       setCustomsFormOpen(false);
       setCustomsDeclarationNo(''); setCustomsChannel(''); setCustomsHsCode('');
+      setCustomsRegisteredAt(''); setCustomsClearedAt(''); setCustomsTaxAmount('');
+      setCustomsPrefillNote(null);
     } catch (e: unknown) {
       setCustomsError(e instanceof Error ? e.message : 'Không lưu được tờ khai');
     } finally {
@@ -417,6 +454,17 @@ export function ContainerDetailPage() {
       )}
 
       {/* Customs declarations + phân luồng history (GĐ7A) */}
+      {/* Bước 2 đứng trước Bước 4 trên trang hồ sơ, đúng thứ tự lô hàng đi qua. */}
+      {containerNo && canViewBooking(user?.role) && (
+        <BookingCard containerNo={containerNo} role={user?.role} />
+      )}
+
+      {/* Phiếu nhập liệu đứng NGAY TRƯỚC mục Hải quan: nhân viên đọc phiếu rồi
+          mới gõ sang ECUS, xong mới quay lại ghi kết quả phân luồng. */}
+      {containerNo && canViewCustomsDeclaration(user?.role) && (
+        <CustomsWorksheetCard containerNo={containerNo} />
+      )}
+
       {canViewCustomsDeclaration(user?.role) && (
         <section>
           <h2 style={SECTION_HEADING}>Hải quan</h2>
@@ -471,6 +519,10 @@ export function ContainerDetailPage() {
             {canCreateCustomsDeclaration(user?.role) && (
               customsFormOpen ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <button className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }}
+                    onClick={applyCustomsPrefill} disabled={customsBusy}>
+                    Điền từ thông báo hải quan đã đọc
+                  </button>
                   <input
                     className="form-input"
                     placeholder="Số tờ khai"
@@ -496,6 +548,26 @@ export function ContainerDetailPage() {
                     <option value="yellow">Luồng Vàng</option>
                     <option value="red">Luồng Đỏ</option>
                   </select>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
+                    <div className="form-group">
+                      <label className="form-label">Ngày đăng ký</label>
+                      <input type="date" className="form-input" value={customsRegisteredAt}
+                        onChange={e => setCustomsRegisteredAt(e.target.value)} disabled={customsBusy} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Ngày thông quan</label>
+                      <input type="date" className="form-input" value={customsClearedAt}
+                        onChange={e => setCustomsClearedAt(e.target.value)} disabled={customsBusy} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Tiền thuế (VND)</label>
+                      <input type="number" step="0.01" className="form-input" placeholder="42150000"
+                        value={customsTaxAmount} onChange={e => setCustomsTaxAmount(e.target.value)} disabled={customsBusy} />
+                    </div>
+                  </div>
+                  {customsPrefillNote && (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{customsPrefillNote}</div>
+                  )}
                   {customsError && <div style={{ color: 'var(--danger)', fontSize: 12 }}>{customsError}</div>}
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button className="btn btn-primary btn-sm" onClick={submitCustomsDeclaration} disabled={customsBusy}>

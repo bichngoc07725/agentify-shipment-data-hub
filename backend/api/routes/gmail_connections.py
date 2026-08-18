@@ -47,6 +47,11 @@ async def create_or_update_gmail_connection(
 async def disconnect_gmail_connection_endpoint(
     connection_id: UUID,
     db: AsyncSession = Depends(get_db),
+    # Ngắt kết nối Gmail là cấu hình hệ thống, cùng hạng với `create` và
+    # `oauth/start` ngay bên cạnh — mọi endpoint khác trong file này đều đã
+    # chặn, riêng cái này bỏ trống nên bất kỳ ai gọi được API đều cắt được
+    # nguồn thư của cả công ty.
+    _current_user=Depends(require_permission("system_config", "edit")),
 ) -> GmailConnectionResponse:
     connection = await disconnect_gmail_connection(db, connection_id)
     if connection is None:

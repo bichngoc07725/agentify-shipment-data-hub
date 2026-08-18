@@ -359,3 +359,140 @@ class GmailAdapterTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CustomsFactsTest(unittest.TestCase):
+    """Khối `customs` phải thành fact, không bị bỏ như trước."""
+
+    def _record(self, **customs):
+        from gmail_service.models import (
+            CustomsDeclaration,
+            ExtractedRecord,
+            Identifiers,
+            Route,
+            Source,
+        )
+
+        return ExtractedRecord(
+            source=Source(
+                message_id="m1",
+                sender="haiquan@demo.gov.vn",
+                subject="Thông báo phân luồng",
+                received_at="2026-08-10T09:00:00+00:00",
+            ),
+            doc_type="customs_declaration",
+            doc_type_confidence=0.9,
+            identifiers=Identifiers(container_no=["CSQU3054383"]),
+            route=Route(),
+            customs=CustomsDeclaration(**customs),
+        )
+
+    def _facts(self, record):
+        from gmail_service.adapter import _build_record_facts
+
+        facts = _build_record_facts(
+            record=record,
+            source_type="pdf_text",
+            source_label="Thông báo hải quan",
+            attachment_filename=None,
+            confidence=None,
+            status_value="ok",
+        )
+        return {fact.field_name: fact.normalized_value for fact in facts}
+
+    def test_lane_dates_and_tax_become_facts(self) -> None:
+        facts = self._facts(
+            self._record(
+                clearance_lane="yellow",
+                registration_date="2026-08-10",
+                clearance_date="2026-08-12",
+                total_tax_amount=42150000.0,
+                customs_office="Chi cuc HQ Hai Phong",
+            )
+        )
+
+        self.assertEqual(facts["customs_lane"], "yellow")
+        self.assertEqual(facts["customs_registered_at"], "2026-08-10")
+        self.assertEqual(facts["customs_cleared_at"], "2026-08-12")
+        self.assertEqual(facts["customs_office"], "Chi cuc HQ Hai Phong")
+        self.assertIn("42150000", facts["customs_tax_amount"])
+
+    def test_absent_customs_block_produces_no_customs_facts(self) -> None:
+        from gmail_service.models import ExtractedRecord, Identifiers, Route, Source
+
+        record = ExtractedRecord(
+            source=Source(
+                message_id="m2", sender="a@b.com", subject="x",
+                received_at="2026-08-10T09:00:00+00:00",
+            ),
+            doc_type="other",
+            doc_type_confidence=0.2,
+            identifiers=Identifiers(container_no=["CSQU3054383"]),
+            route=Route(),
+        )
+
+        facts = self._facts(record)
+
+        self.assertFalse([k for k in facts if k.startswith("customs_")])
+
+    def test_partial_customs_block_only_emits_what_it_has(self) -> None:
+        # Thư mới báo phân luồng, chưa thông quan — không được bịa ngày thông quan.
+        facts = self._facts(self._record(clearance_lane="red"))
+
+        self.assertEqual(facts["customs_lane"], "red")
+        self.assertNotIn("customs_cleared_at", facts)
+        self.assertNotIn("customs_tax_amount", facts)
+
+
+class PartyFactsTest(unittest.TestCase):
+    """Party là đối tượng, không phải chuỗi — ép str() lên nó sẽ đổ
+    "name=... address=..." thẳng vào ô tờ khai."""
+
+    def _facts(self, **record_kwargs):
+        from gmail_service.adapter import _build_record_facts
+        from gmail_service.models import ExtractedRecord, Identifiers, Route, Source
+
+        record = ExtractedRecord(
+            source=Source(
+                message_id="m", sender="x@y.com", subject="Commercial Invoice",
+                received_at="2026-08-15T10:00:00+00:00",
+            ),
+            doc_type="invoice", doc_type_confidence=0.9,
+            identifiers=Identifiers(container_no=["CSQU3054383"]),
+            route=Route(),
+            **record_kwargs,
+        )
+        facts = _build_record_facts(
+            record=record, source_type="pdf_text", source_label="Invoice",
+            attachment_filename=None, confidence=None, status_value="ok",
+        )
+        return {f.field_name: f.normalized_value for f in facts}
+
+    def test_shipper_splits_into_name_address_and_tax_code(self) -> None:
+        from gmail_service.models import Party
+
+        facts = self._facts(
+            shipper=Party(
+                name="Cong ty CP Det May Thanh Long",
+                address="Lo B2-4 KCN Nomura, Hai Phong",
+                tax_code="0201234567",
+            )
+        )
+
+        self.assertEqual(facts["shipper"], "Cong ty CP Det May Thanh Long")
+        self.assertEqual(facts["shipper_address"], "Lo B2-4 KCN Nomura, Hai Phong")
+        self.assertEqual(facts["shipper_tax_code"], "0201234567")
+
+    def test_a_party_with_only_a_name_emits_only_the_name(self) -> None:
+        from gmail_service.models import Party
+
+        facts = self._facts(consignee=Party(name="Sakura Apparel Trading K.K."))
+
+        self.assertEqual(facts["consignee"], "Sakura Apparel Trading K.K.")
+        self.assertNotIn("consignee_address", facts)
+        self.assertNotIn("consignee_tax_code", facts)
+
+    def test_no_party_emits_nothing(self) -> None:
+        facts = self._facts()
+
+        self.assertFalse([k for k in facts if k.startswith(("shipper", "consignee"))])

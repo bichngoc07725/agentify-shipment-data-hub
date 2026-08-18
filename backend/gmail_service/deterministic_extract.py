@@ -74,6 +74,12 @@ _IDENTIFIER_PATTERNS: dict[str, list[re.Pattern[str]]] = {
         _labelled(r"s[oố]\s*t[oờ]\s*khai", _DECLARATION_VALUE),
         _labelled(r"declaration\s*(?:no|number)?", _DECLARATION_VALUE),
     ],
+    # Mã HS là số có chấm ("6205.20.00"), không lọt qua `_ID_VALUE` vốn không
+    # nhận dấu chấm. Thiếu nó thì ô Mã HS trên form tờ khai (Bước 4) trống dù
+    # thông báo hải quan ghi rõ, và Ops phải mở lại mail gõ tay.
+    "hs_code": [
+        _labelled(r"m[aã]\s*hs|hs\s*code|hs", r"(\d{4}(?:[. ]?\d{2}){0,3})"),
+    ],
 }
 
 _DATE_LABELS: dict[str, str] = {
@@ -106,38 +112,104 @@ _FREE_TIME_PATTERNS = [
 # Carriers usually print vessel and voyage on one line, e.g.
 # "Vessel / Voyage: MSC ANNA / 235W". Matching that as a unit avoids reading the
 # vessel name as the voyage number.
+# Mã chuyến có hình dạng cố định: vài chữ tuỳ chọn, vài chữ số, hậu tố hướng
+# tuyến (018W, 145E, 2612S). Ràng buộc hình dạng là thứ chặn việc đọc tên hãng
+# tàu thành số chuyến — "Vessel / Voyage: ONE COMMITMENT 145E" từng cho ra
+# voyage="ONE" vì luật cũ chỉ lấy token đầu tiên sau nhãn.
+_VOYAGE_CODE = r"([A-Z]{0,4}\d{1,4}[A-Z]{0,2})"
+
+# Sau dấu hai chấm chỉ cho phép khoảng trắng NGANG. Cho `\s*` chạy qua xuống
+# dòng nghĩa là một câu văn kết thúc bằng "...to the next vessel." sẽ nuốt luôn
+# dòng kế tiếp và cho ra tên tàu là "Best regards".
+_INLINE_SEP = r"[ \t]*[:.#-][ \t]*"
+
+# Hai giá trị trên cùng một dòng, ngăn nhau bằng "/" hoặc chỉ khoảng trắng.
 _VESSEL_VOYAGE_PATTERN = re.compile(
-    r"\b(?:vessel|ship|t[aà]u)\s*[/&]\s*(?:voyage|voy|chuy[eế]n)\s*[:.#-]\s*"
-    r"([^\n,;|/]{2,40}?)\s*/\s*([A-Z0-9][A-Z0-9-]{0,15})\b",
-    re.IGNORECASE,
+    r"^[ \t]*(?:vessel|ship|t[aà]u)[ \t]*[/&][ \t]*(?:voyage|voy|chuy[eế]n)"
+    rf"{_INLINE_SEP}([^\n,;|/]{{2,40}}?)[ \t/]+{_VOYAGE_CODE}[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
 )
 _VESSEL_PATTERNS = [
     re.compile(
-        r"\b(?:vessel|ship|t[aà]u)(?:\s*name)?\s*[:.#-]\s*([^\n,;|]{2,60})",
+        rf"\b(?:vessel|ship|t[aà]u)(?:[ \t]*name)?{_INLINE_SEP}([^\n,;|]{{2,60}})",
         re.IGNORECASE,
     ),
 ]
 _VOYAGE_PATTERNS = [
     re.compile(
-        r"\b(?:voyage|voy|chuy[eế]n)(?:\s*(?:no|number))?\s*[:.#-]\s*"
-        r"([A-Z0-9][A-Z0-9-]{0,15})",
+        rf"\b(?:voyage|voy|chuy[eế]n)(?:[ \t]*(?:no|number))?{_INLINE_SEP}"
+        rf"{_VOYAGE_CODE}\b",
         re.IGNORECASE,
     ),
 ]
 _PORT_PATTERNS = {
     "pol": [
         re.compile(
-            r"\b(?:pol|port\s+of\s+loading|c[aả]ng\s+x[eế]p)\s*[:.#-]\s*([^\n,;|]{2,60})",
+            rf"\b(?:pol|port[ \t]+of[ \t]+loading|c[aả]ng[ \t]+x[eế]p){_INLINE_SEP}([^\n,;|]{{2,60}})",
             re.IGNORECASE,
         )
     ],
     "pod": [
         re.compile(
-            r"\b(?:pod|port\s+of\s+discharge|c[aả]ng\s+d[oỡ])\s*[:.#-]\s*([^\n,;|]{2,60})",
+            rf"\b(?:pod|port[ \t]+of[ \t]+discharge|c[aả]ng[ \t]+d[oỡ]){_INLINE_SEP}([^\n,;|]{{2,60}})",
             re.IGNORECASE,
         )
     ],
 }
+
+# Ba mốc chốt trên thư xác nhận đặt chỗ. Trễ một mốc là rớt chuyến, nên đây là
+# dữ liệu đắt nhất của Bước 2 — mà trước đây phải gõ tay cả ba, dù thư hãng tàu
+# ghi rõ từng dòng.
+#
+# Giờ được giữ nguyên như trên chứng từ ("2026-08-18 16:00"), KHÔNG quy đổi múi
+# giờ, kể cả khi thư ghi "(GMT+7)". Mốc cut-off là giờ tại cảng xếp, và người
+# đọc nó đang làm việc ở chính cảng đó; quy về UTC rồi hiển thị lại theo máy
+# người xem là cách chắc chắn nhất để một mốc 16:00 hiện thành 09:00.
+_CUTOFF_TIME = r"(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}/\d{1,2}/\d{4})[ \t]+(\d{1,2}):(\d{2})"
+_CUTOFF_PATTERNS: dict[str, re.Pattern[str]] = {
+    "si_cutoff_at": re.compile(
+        rf"\bs\.?i\.?[ \t]*cut[ \t-]?off{_INLINE_SEP}{_CUTOFF_TIME}", re.IGNORECASE
+    ),
+    "vgm_cutoff_at": re.compile(
+        rf"\bvgm[ \t]*cut[ \t-]?off{_INLINE_SEP}{_CUTOFF_TIME}", re.IGNORECASE
+    ),
+    "gate_in_cutoff_at": re.compile(
+        rf"\b(?:gate[ \t-]?in|h[aạ][ \t]*(?:b[aã]i|container))[ \t]*cut[ \t-]?off"
+        rf"{_INLINE_SEP}{_CUTOFF_TIME}",
+        re.IGNORECASE,
+    ),
+}
+
+_DEPOT_PATTERN = re.compile(
+    rf"\b(?:empty[ \t]*(?:pick[ \t-]?up)?[ \t]*depot|depot[ \t]*(?:l[aấ]y[ \t]*r[oỗ]ng)?"
+    rf"|n[oơ]i[ \t]*l[aấ]y[ \t]*r[oỗ]ng){_INLINE_SEP}([^\n;|]{{3,80}})",
+    re.IGNORECASE,
+)
+
+
+def find_cutoffs(content: str) -> dict[str, str]:
+    """Ba mốc chốt, dạng `YYYY-MM-DDTHH:MM` — đúng thứ ô `datetime-local` nhận."""
+    found: dict[str, str] = {}
+    for field, pattern in _CUTOFF_PATTERNS.items():
+        match = pattern.search(content)
+        if not match:
+            continue
+        raw_date, hour, minute = match.groups()
+        if "/" in raw_date:
+            day, month, year = raw_date.split("/")
+        else:
+            year, month, day = raw_date.split("-")
+        found[field] = (
+            f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+            f"T{int(hour):02d}:{minute}"
+        )
+    return found
+
+
+def find_empty_pickup_depot(content: str) -> str | None:
+    match = _DEPOT_PATTERN.search(content)
+    return match.group(1).strip(" .") if match else None
+
 
 # Ordered: the first keyword that matches wins, so put the specific ones first.
 _DOC_TYPE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
@@ -313,6 +385,101 @@ def classify_document(subject: str, text: str) -> tuple[str, float]:
     return "other", 0.0
 
 
+# Giá trị là cả phần còn lại của dòng: tên công ty, địa chỉ, "940 CTNS" đều có
+# dấu cách, nên không dùng được khuôn mã định danh liền mạch.
+_LINE_VALUE = r"([^\r\n]+?)\s*$"
+
+
+def _labelled_line(label: str) -> re.Pattern[str]:
+    return re.compile(rf"^\s*(?:{label}){_LABEL_SEP}{_LINE_VALUE}", re.IGNORECASE | re.MULTILINE)
+
+
+# Chứng từ thương mại và thông báo hải quan hầu hết viết theo kiểu "Nhãn: giá
+# trị" trên từng dòng. Đọc được chúng bằng regex nghĩa là hệ thống vẫn dùng được
+# khi nhà cung cấp LLM hỏng hoặc hết hạn mức — thay vì mất trắng toàn bộ dữ liệu
+# quan trọng nhất của Bước 3 và Bước 4.
+_PARTY_LINE_PATTERNS: dict[str, list[re.Pattern[str]]] = {
+    "shipper": [_labelled_line(r"shipper|ng[uư][oờ]i\s*xu[aấ]t\s*kh[aẩ]u")],
+    "shipper_address": [_labelled_line(r"shipper\s*address|[dđ][iị]a\s*ch[iỉ]\s*ng[uư][oờ]i\s*b[aá]n")],
+    "shipper_tax_code": [_labelled_line(r"shipper\s*tax\s*code|m[aã]\s*s[oố]\s*thu[eế]")],
+    "consignee": [_labelled_line(r"consignee|ng[uư][oờ]i\s*nh[aậ]n")],
+    "consignee_address": [_labelled_line(r"consignee\s*address")],
+    "notify_party": [_labelled_line(r"notify\s*party")],
+}
+
+_CARGO_LINE_PATTERNS: dict[str, list[re.Pattern[str]]] = {
+    "packages": [_labelled_line(r"packages?|s[oố]\s*ki[eệ]n|no\.?\s*of\s*packages")],
+    "gross_weight_kg": [_labelled_line(r"gross\s*weight|tr[oọ]ng\s*l[uư][oợ]ng")],
+    "volume_cbm": [_labelled_line(r"measurement|volume|s[oố]\s*kh[oố]i|cbm")],
+    "description": [_labelled_line(r"description|m[oô]\s*t[aả]\s*h[aà]ng")],
+}
+
+_CUSTOMS_LINE_PATTERNS: dict[str, list[re.Pattern[str]]] = {
+    "clearance_lane": [_labelled_line(r"ph[aâ]n\s*lu[oồ]ng|clearance\s*lane|lane")],
+    "customs_office": [_labelled_line(r"chi\s*c[uụ]c\s*h[aả]i\s*quan|customs\s*office")],
+    "registration_date": [_labelled_line(r"ng[aà]y\s*[dđ][aă]ng\s*k[yý]|registration\s*date")],
+    "clearance_date": [_labelled_line(r"ng[aà]y\s*th[oô]ng\s*quan|clearance\s*date")],
+    "total_tax_amount": [_labelled_line(r"t[oổ]ng\s*ti[eề]n\s*thu[eế]|total\s*tax|ti[eề]n\s*thu[eế]")],
+}
+
+_DOC_LINE_PATTERNS: dict[str, list[re.Pattern[str]]] = {
+    "doc_date": [_labelled_line(r"invoice\s*date|ng[aà]y\s*h[oó]a\s*[dđ][oơ]n")],
+    "payment_term": [_labelled_line(r"payment\s*term|[dđ]i[eề]u\s*kho[aả]n\s*thanh\s*to[aá]n")],
+}
+
+
+# Bảng phí trên thư báo giá của hãng tàu gần như luôn là một dòng một khoản:
+# "Ocean Freight 40HC   x2   USD 2,480.00". Đọc được bằng regex nghĩa là bước
+# lập báo giá vẫn chạy khi nhà cung cấp LLM hỏng — đó là khâu tạo ra con số gửi
+# khách, không nên phụ thuộc vào một dịch vụ ngoài.
+_CHARGE_LINE = re.compile(
+    r"^[ \t]*(?P<description>[A-Za-zÀ-ỹ][^\n:]*?)"
+    r"(?:[ \t]+x[ \t]*(?P<quantity>\d{1,3}))?"
+    r"[ \t]+(?P<currency>USD|VND|EUR|SGD|JPY|CNY)[ \t]*"
+    r"(?P<amount>[\d.,]+\d)[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# Dòng không phải khoản phí nhưng cũng có dạng "chữ ... SỐ": tổng cộng, hạn mức.
+_CHARGE_STOPWORDS = ("total", "tổng", "sub-total", "subtotal", "grand total")
+
+
+def find_charges(text: str) -> list[dict]:
+    """Các dòng phí đọc được từ bảng giá dạng văn bản."""
+    charges: list[dict] = []
+    for match in _CHARGE_LINE.finditer(text or ""):
+        description = match.group("description").strip(" -\t")
+        if not description or any(w in description.lower() for w in _CHARGE_STOPWORDS):
+            continue
+        try:
+            amount = float(match.group("amount").replace(",", ""))
+        except ValueError:
+            continue
+        if amount <= 0:
+            continue
+        charges.append(
+            {
+                "description": description,
+                "quantity": match.group("quantity"),
+                "currency": match.group("currency").upper(),
+                "amount": amount,
+                "vat_rate": None,
+            }
+        )
+    return charges
+
+
+def _collect_labelled(
+    content: str, patterns: dict[str, list[re.Pattern[str]]]
+) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for field, field_patterns in patterns.items():
+        value = _first_match(content, field_patterns)
+        if value:
+            found[field] = value.strip()
+    return found
+
+
 def extract_deterministic(subject: str, sender: str, text: str) -> dict:
     """Build a partial ExtractedRecord payload using rules only."""
     content = "\n".join(part for part in (subject, text) if part)
@@ -343,6 +510,10 @@ def extract_deterministic(subject: str, sender: str, text: str) -> dict:
         if port:
             route[field] = port
     route.update(find_dates(content))
+    route.update(find_cutoffs(content))
+    depot = find_empty_pickup_depot(content)
+    if depot:
+        route["empty_pickup_depot"] = depot
 
     payload: dict[str, object] = {
         "doc_type": doc_type,
@@ -353,6 +524,36 @@ def extract_deterministic(subject: str, sender: str, text: str) -> dict:
             container_no: confidence for container_no, confidence in containers
         },
     }
+
+    # Các bên là đối tượng lồng; tách tên/địa chỉ/mã số thuế ra đúng hình dạng
+    # mà bản trích xuất đầy đủ dùng, để hai đường cho ra cùng một cấu trúc.
+    party_lines = _collect_labelled(content, _PARTY_LINE_PATTERNS)
+    for party in ("shipper", "consignee", "notify_party"):
+        party_payload = {
+            key: party_lines[source]
+            for key, source in (
+                ("name", party),
+                ("address", f"{party}_address"),
+                ("tax_code", f"{party}_tax_code"),
+            )
+            if source in party_lines
+        }
+        if party_payload:
+            payload[party] = party_payload
+
+    cargo = _collect_labelled(content, _CARGO_LINE_PATTERNS)
+    if cargo:
+        payload["cargo"] = cargo
+
+    customs = _collect_labelled(content, _CUSTOMS_LINE_PATTERNS)
+    if customs:
+        payload["customs"] = customs
+
+    payload.update(_collect_labelled(content, _DOC_LINE_PATTERNS))
+
+    charges = find_charges(text or "")
+    if charges:
+        payload["charges"] = charges
 
     free_time_days = find_free_time_days(content)
     if free_time_days is not None:

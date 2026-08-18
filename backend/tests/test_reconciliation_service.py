@@ -4,6 +4,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 from services.reconciliation_service import (
+    build_customs_tax_line,
     build_reconciliation_lines,
     compute_demurrage_estimate,
     needs_approval_for,
@@ -131,3 +132,44 @@ class DemurrageTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CustomsTaxLineTest(unittest.TestCase):
+    """Thuế hải quan phải vào đối soát như một khoản chi thực."""
+
+    def _declaration(self, **overrides):
+        defaults = dict(tax_amount=Decimal("42150000"), declaration_no="105892374610")
+        defaults.update(overrides)
+        return SimpleNamespace(**defaults)
+
+    def test_tax_becomes_an_extra_actual_line(self) -> None:
+        # Thuế không nằm trong báo giá — báo giá là tiền cước dịch vụ — nên nó
+        # luôn là khoản phát sinh ngoài, không phải khoản lệch.
+        line = build_customs_tax_line(self._declaration())
+
+        self.assertEqual(line.charge_code, "CUSTOMS_TAX")
+        self.assertIsNone(line.quoted_amount)
+        self.assertEqual(line.actual_amount, Decimal("42150000"))
+        self.assertEqual(line.match_status, "extra_actual")
+
+    def test_the_note_points_at_the_declaration(self) -> None:
+        line = build_customs_tax_line(self._declaration())
+
+        self.assertIn("105892374610", line.note)
+
+    def test_no_declaration_produces_no_line(self) -> None:
+        self.assertIsNone(build_customs_tax_line(None))
+
+    def test_a_declaration_without_tax_produces_no_line(self) -> None:
+        # Chưa nhập thuế khác với thuế bằng 0; dựng một dòng 0 đồng chỉ làm
+        # bảng đối soát dài thêm mà không nói gì.
+        self.assertIsNone(build_customs_tax_line(self._declaration(tax_amount=None)))
+
+    def test_zero_tax_produces_no_line(self) -> None:
+        self.assertIsNone(build_customs_tax_line(self._declaration(tax_amount=Decimal("0"))))
+
+    def test_a_declaration_without_a_number_still_produces_a_line(self) -> None:
+        line = build_customs_tax_line(self._declaration(declaration_no=None))
+
+        self.assertEqual(line.actual_amount, Decimal("42150000"))
+        self.assertNotIn("theo tờ khai", line.note)

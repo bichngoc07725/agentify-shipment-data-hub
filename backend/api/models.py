@@ -660,6 +660,181 @@ class CustomsDeclarationListResponse(BaseModel):
     total: int
 
 
+class QuoteDraftFields(BaseModel):
+    """Các ô của form báo giá mà hệ thống rút được từ email. Mọi ô đều có thể
+    vắng — vắng nghĩa là không tìm thấy trong email, không phải bằng 0."""
+
+    customer_name: str | None = None
+    pol: str | None = None
+    pod: str | None = None
+    commodity: str | None = None
+    container_type: str | None = None
+    container_qty: int | None = None
+    gross_weight_kg: Decimal | None = None
+    cargo_ready_date: date | None = None
+    incoterm: str | None = None
+    payment_term: str | None = None
+
+
+class QuoteDraftResponse(BaseModel):
+    source_email_id: UUID
+    source_subject: str | None
+    source_from: str | None
+    fields: QuoteDraftFields
+    # Tên các ô thực sự rút được, để giao diện nói rõ "đã điền N trường" thay vì
+    # để người dùng tự dò xem máy đã đụng vào đâu.
+    fields_found: list[str]
+    extraction_error: str | None = None
+
+
+class WorksheetFieldResponse(BaseModel):
+    label: str
+    value: str | None
+    source_hint: str
+    is_missing: bool
+    # Chuỗi đã dựng sẵn kèm câu "không có trong Agentify" và nguồn cần tra, để
+    # web và file .docx hiển thị y hệt nhau thay vì mỗi nơi tự ghép một kiểu.
+    display: str
+
+
+class WorksheetSectionResponse(BaseModel):
+    title: str
+    fields: list[WorksheetFieldResponse]
+
+
+class CustomsWorksheetResponse(BaseModel):
+    container_no: str
+    sections: list[WorksheetSectionResponse]
+    field_count: int
+    missing_count: int
+
+
+class ComposedMailResponse(BaseModel):
+    """Nội dung thư soạn sẵn. Agentify không gửi — người dùng bấm gửi trong hộp
+    thư của chính họ, nên phản hồi chỉ có tiêu đề và thân thư."""
+
+    subject: str
+    body: str
+
+
+class ChargeDraftLine(BaseModel):
+    charge_group: Literal["ocean_freight", "surcharge", "local"]
+    charge_code: str
+    description: str
+    unit_price: str
+    currency: str
+    quantity: str
+
+
+class ChargeDraftResponse(BaseModel):
+    source_email_id: UUID
+    source_subject: str | None
+    source_from: str | None
+    charges: list[ChargeDraftLine]
+    extraction_error: str | None = None
+
+
+BookingStatusLiteral = Literal["requested", "confirmed", "amended", "cancelled"]
+
+
+class BookingCreateRequest(BaseModel):
+    """Bước 2 — đặt chỗ trên tàu.
+
+    KHÔNG trường nào bắt buộc, kể cả container: lúc gửi yêu cầu đặt chỗ thì
+    chưa có số booking, chưa có tên tàu, và hãng tàu chưa cấp container. Bắt
+    nhập đủ ở bước này đồng nghĩa ép nhân viên bịa số — đúng thứ hệ thống tồn
+    tại để chống. Container được gắn vào sau, khi hãng tàu xác nhận.
+    """
+
+    container_no: str | None = None
+    quote_id: UUID | None = None
+    booking_no: str | None = None
+    status: BookingStatusLiteral = "requested"
+    carrier: str | None = None
+    vessel: str | None = None
+    voyage: str | None = None
+    pol: str | None = None
+    pod: str | None = None
+    etd: date | None = None
+    eta: date | None = None
+    si_cutoff_at: datetime | None = None
+    vgm_cutoff_at: datetime | None = None
+    gate_in_cutoff_at: datetime | None = None
+    container_type: str | None = None
+    container_qty: int | None = None
+    empty_pickup_depot: str | None = None
+    freight_rate: Decimal | None = None
+    currency: str = "USD"
+    note: str | None = None
+
+
+class BookingUpdateRequest(BaseModel):
+    # Gắn container vào sau, khi hãng tàu xác nhận và cấp số. Thiếu trường này
+    # thì chỗ đặt mở ở trạng thái `requested` không bao giờ nối được với
+    # container — đúng chỗ mắt xích Bước 2 sang Bước 3 bị đứt.
+    container_no: str | None = None
+    quote_id: UUID | None = None
+    booking_no: str | None = None
+    status: BookingStatusLiteral = "requested"
+    carrier: str | None = None
+    vessel: str | None = None
+    voyage: str | None = None
+    pol: str | None = None
+    pod: str | None = None
+    etd: date | None = None
+    eta: date | None = None
+    si_cutoff_at: datetime | None = None
+    vgm_cutoff_at: datetime | None = None
+    gate_in_cutoff_at: datetime | None = None
+    container_type: str | None = None
+    container_qty: int | None = None
+    empty_pickup_depot: str | None = None
+    freight_rate: Decimal | None = None
+    currency: str = "USD"
+    note: str | None = None
+
+
+class BookingResponse(BaseModel):
+    id: UUID
+    # Rỗng khi chỗ đặt mới ở trạng thái đã gửi yêu cầu — hãng tàu chưa cấp
+    # container. Được gắn vào khi booking được xác nhận.
+    container_id: UUID | None = None
+    container_no: str | None = None
+    quote_id: UUID | None
+    quote_no: str | None = None
+    booking_no: str | None
+    status: BookingStatusLiteral
+    carrier: str | None
+    vessel: str | None
+    voyage: str | None
+    pol: str | None
+    pod: str | None
+    etd: date | None
+    eta: date | None
+    si_cutoff_at: datetime | None
+    vgm_cutoff_at: datetime | None
+    gate_in_cutoff_at: datetime | None
+    container_type: str | None
+    container_qty: int | None
+    empty_pickup_depot: str | None
+    freight_rate: Decimal | None
+    currency: str
+    note: str | None
+    created_by: UUID
+    # Mốc chốt gần nhất còn hiệu lực và số giờ còn lại — tính sẵn ở server để
+    # mọi client hiển thị cùng một con số thay vì mỗi nơi tự trừ ngày một kiểu.
+    next_cutoff_label: str | None = None
+    next_cutoff_at: datetime | None = None
+    hours_to_next_cutoff: float | None = None
+    created_at: datetime
+    updated_at: datetime | None
+
+
+class BookingListResponse(BaseModel):
+    items: list[BookingResponse]
+    total: int
+
+
 class ShipmentCreateRequest(BaseModel):
     customer_name: str | None = None
     direction: Literal["import", "export"] | None = None

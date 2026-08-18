@@ -1,0 +1,106 @@
+{
+  "name": "roundtrip-rfq-hpn",
+  "title": "Det May Thanh Long — Hai Phong → Yokohama, 2 x 40HC",
+  "email_filter": "roundtrip-rfq-hpn",
+  "container_no": "ONEU7041287",
+  "email_subject_marker": "AGENTIFY-DEMO",
+
+  "_ghi_chu_ngay": "Ngày trong corpus là tuyệt đối nên cứ trôi vào quá khứ. Ba mốc cut-off và ETD/ETA được dời theo NGÀY THẢ THƯ để băng đếm ngược luôn có ý nghĩa. Ngày quá khứ (hoá đơn 15/08, đăng ký tờ khai 16/08) giữ nguyên — đọc 'hoá đơn phát hành tuần trước' vẫn tự nhiên, và INV-TL-260815 mã hoá sẵn ngày trong số hoá đơn.",
+  "date_shift": {
+    "anchor": "2026-08-20",
+    "anchor_days_from_today": 4,
+    "dates": ["2026-08-18", "2026-08-19", "2026-08-20", "2026-08-29"]
+  },
+
+  "email_waves": [
+    {
+      "name": "rfq",
+      "label": "khách gửi thư hỏi giá",
+      "arrives_before": "Bước 1.1",
+      "folders": ["-01-khach-hoi-gia"]
+    },
+    {
+      "name": "rate",
+      "label": "hãng tàu trả lời bảng cước",
+      "arrives_before": "Bước 1.4 — sau khi bạn gửi thư hỏi cước ở 1.3",
+      "folders": ["-03-hang-tau-bao-gia"]
+    },
+    {
+      "name": "booking",
+      "label": "hãng tàu xác nhận đặt chỗ",
+      "arrives_before": "Bước 2.3 — sau khi bạn gửi thư đặt chỗ ở 2.2",
+      "folders": ["-06-hang-tau-xac-nhan"]
+    },
+    {
+      "name": "docs",
+      "label": "khách gửi Invoice và Packing List",
+      "arrives_before": "Bước 3.1",
+      "folders": ["-07-khach-gui-invoice", "-08-khach-gui-packing-list"]
+    },
+    {
+      "name": "customs",
+      "label": "hải quan thông báo phân luồng",
+      "arrives_before": "Bước 4.2 — sau khi bạn truyền tờ khai ở 4.1",
+      "folders": ["-09-hai-quan-phan-luong"]
+    }
+  ],
+
+  "quote": {
+    "role": "sales",
+    "customer_name": "Cong ty CP Det May Thanh Long",
+    "status": "accepted",
+    "pol": "Hai Phong",
+    "pod": "Yokohama",
+    "commodity": "Áo sơ mi cotton",
+    "container_type": "40HC",
+    "container_qty": 2,
+    "cargo_ready_date": "2026-08-20",
+    "incoterm": "FOB",
+    "valid_until": "2026-09-02",
+    "currency": "USD",
+    "note": "Nạp sẵn cho demo — dựng từ thư hỏi giá RFQ-PO-JP-88315.",
+    "charges": [
+      {"charge_group": "ocean_freight", "charge_code": "OF", "description": "Ocean Freight 40HC", "unit_price": "1240.00", "quantity": "2"},
+      {"charge_group": "surcharge", "charge_code": "BAF", "description": "Bunker Adjustment Factor", "unit_price": "130.00", "quantity": "1"},
+      {"charge_group": "surcharge", "charge_code": "LSS", "description": "Low Sulphur Surcharge", "unit_price": "88.00", "quantity": "1"},
+      {"charge_group": "local", "charge_code": "THC", "description": "Terminal Handling Charge", "unit_price": "170.00", "quantity": "2"},
+      {"charge_group": "local", "charge_code": "DOC", "description": "Documentation fee", "unit_price": "35.00", "quantity": "1"},
+      {"charge_group": "local", "charge_code": "TELEX", "description": "Telex release", "unit_price": "30.00", "quantity": "1"}
+    ],
+    "expected_total": "3103.00"
+  },
+
+  "booking": {
+    "role": "ops",
+    "booking_no": "ONE-BKG-260805",
+    "status": "confirmed",
+    "carrier": "Ocean Network Express",
+    "vessel": "ONE COMMITMENT",
+    "voyage": "145E",
+    "pol": "Hai Phong",
+    "pod": "Yokohama",
+    "etd": "2026-08-20",
+    "eta": "2026-08-29",
+    "si_cutoff_at": "2026-08-18T16:00:00+07:00",
+    "vgm_cutoff_at": "2026-08-18T10:00:00+07:00",
+    "gate_in_cutoff_at": "2026-08-19T15:00:00+07:00",
+    "container_type": "40HC",
+    "container_qty": 2,
+    "empty_pickup_depot": "Nam Hai Dinh Vu depot, Hai Phong",
+    "freight_rate": "1240.00",
+    "currency": "USD",
+    "note": "Giá cước 1240 là giá MUA từ hãng tàu, khác giá bán 2480 trong báo giá."
+  },
+
+  "customs": {
+    "role": "ops",
+    "declaration_no": "305892374611",
+    "declaration_type": "export",
+    "channel": "red",
+    "hs_code": "6205.20.00",
+    "registered_at": "2026-08-16",
+    "cleared_at": null,
+    "tax_amount": "42150000",
+    "note": "Luồng Đỏ — phải kiểm tra thực tế hàng hoá."
+  }
+}

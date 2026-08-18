@@ -661,3 +661,17 @@ h3 { font-size: 15px; font-weight: 600; }
   .inspector-panel { width: 100%; border-left: none; border-top: 1px solid var(--border-subtle); }
   .fact-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* Nút tải lại quay khi đang nạp — dấu hiệu duy nhất cho biết bấm đã ăn, vì
+   danh sách thường trả về đúng nội dung cũ. */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation: none; opacity: 0.5; }
+}

@@ -160,6 +160,20 @@ export function canEditCustomsDeclaration(role: Role | undefined): boolean {
   return role === 'admin' || role === 'ops';
 }
 
+// Resource `booking` (Bước 2): Kế toán và Tài xế không xem chỗ đặt; chỉ Ops
+// đặt và sửa — kể cả Admin cũng không đứng tên đặt chỗ hộ, vì đây là việc
+// khai thác chứ không phải việc quản trị. Gương của `config/permissions.py`;
+// backend vẫn là nơi chặn thật.
+const BOOKING_VIEW_ROLES: Role[] = ['admin', 'manager', 'sales_cs', 'docs', 'ops'];
+
+export function canViewBooking(role: Role | undefined): boolean {
+  return !!role && BOOKING_VIEW_ROLES.includes(role);
+}
+
+export function canManageBooking(role: Role | undefined): boolean {
+  return role === 'ops';
+}
+
 // Resource `shipment` (GĐ7B Kanban): everyone except Driver may view a job
 // board card; Sales/CS, Ops, Manager, Admin create new jobs.
 const SHIPMENT_VIEW_ROLES: Role[] = ['admin', 'manager', 'sales_cs', 'docs', 'ops', 'accountant'];

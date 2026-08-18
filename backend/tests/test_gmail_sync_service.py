@@ -182,6 +182,70 @@ class ExecuteSyncJobTest(IsolatedAsyncioTestCase):
         )
         db.refresh.assert_awaited()
 
+    async def _run_failing_sync(self, error: Exception, *, refresh_token="refresh-token"):
+        connection = SimpleNamespace(
+            id=uuid4(),
+            account_email="demo-logistics@agentify.vn",
+            encrypted_refresh_token=refresh_token,
+            sync_cursor=None,
+            last_synced_at=None,
+            status="connected",
+        )
+        job = SimpleNamespace(
+            id=uuid4(),
+            gmail_connection_id=connection.id,
+            query="subject:AGENTIFY-DEMO",
+            max_results=48,
+            status="queued",
+            emails_fetched=0,
+            attachments_found=0,
+            pdf_text_extracted=0,
+            containers_upserted=0,
+            error_message=None,
+            started_at=None,
+            completed_at=None,
+        )
+        result = await execute_sync_job(
+            db=AsyncMock(),
+            connection=connection,
+            job=job,
+            create_service=Mock(return_value=object()),
+            resolve_message_ids=Mock(side_effect=error),
+            filter_message_ids=AsyncMock(return_value=["msg-001"]),
+            fetch_email=Mock(return_value={"gmail_message_id": "msg-001"}),
+            process_email=Mock(return_value=Mock(attachments=[])),
+            ingest_email=AsyncMock(),
+        )
+        return connection, result
+
+    async def test_a_revoked_token_marks_the_connection_expired(self) -> None:
+        # Kết nối chết mà vẫn báo "connected" là hệ thống nói sai về chính nó:
+        # màn hình Setup xanh lè trong khi không thư nào về được nữa.
+        connection, result = await self._run_failing_sync(
+            RuntimeError("('invalid_grant: Token has been expired or revoked.', {})")
+        )
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(connection.status, "expired")
+
+    async def test_a_transient_error_leaves_the_connection_alone(self) -> None:
+        # Lỗi mạng nhất thời thì thử lại là xong — bắt người dùng đi cấp quyền
+        # lại vì một cú timeout là làm phiền vô cớ.
+        connection, result = await self._run_failing_sync(
+            TimeoutError("connection timed out")
+        )
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(connection.status, "connected")
+
+    async def test_a_missing_refresh_token_marks_the_connection_expired(self) -> None:
+        connection, result = await self._run_failing_sync(
+            RuntimeError("unused"), refresh_token=None
+        )
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(connection.status, "expired")
+
     async def test_execute_sync_job_skips_already_synced_messages(self) -> None:
         sent_at = datetime(2026, 6, 9, 3, 45, tzinfo=UTC)
         connection = SimpleNamespace(

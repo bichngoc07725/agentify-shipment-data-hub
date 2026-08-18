@@ -1,10 +1,13 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps.permissions import CurrentUser, require_permission
 from api.models import (
+    CustomsWorksheetResponse,
+    WorksheetFieldResponse,
+    WorksheetSectionResponse,
     CustomsChannelHistoryResponse,
     CustomsDeclarationCreateRequest,
     CustomsDeclarationListResponse,
@@ -14,7 +17,9 @@ from api.models import (
 from db.database import get_db
 from db.models import CustomsDeclaration
 from services.container_service import get_container_by_no
+from services.customs_worksheet_service import collect_worksheet, render_docx
 from services.customs_service import (
+    get_declaration_prefill,
     create_declaration,
     get_declaration,
     list_declarations_for_container,
@@ -121,3 +126,96 @@ async def list_container_customs_endpoint(
     return CustomsDeclarationListResponse(
         items=[_to_response(d) for d in declarations], total=len(declarations)
     )
+
+
+@container_router.get("/containers/{container_no}/customs-worksheet/docx")
+async def download_customs_worksheet_endpoint(
+    container_no: str,
+    db: AsyncSession = Depends(get_db),
+    _current_user: CurrentUser = Depends(
+        require_permission("customs_declaration", "view")
+    ),
+) -> Response:
+    """Phiếu nhập liệu tờ khai (.docx) để gõ sang ECUS/VNACCS.
+
+    Trả file thay vì JSON vì đây là thứ nhân viên in ra hoặc mở cạnh màn hình
+    ECUS mà gõ — dạng dùng được ngay, không phải dữ liệu để máy khác đọc.
+    """
+    container = await get_container_by_no(db, container_no)
+    if container is None:
+        raise HTTPException(status_code=404, detail="Container not found")
+
+    sections = await collect_worksheet(db, container)
+    content = render_docx(container.container_no, sections)
+    filename = f"to-khai-{container.container_no}.docx"
+    return Response(
+        content=content,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@container_router.get(
+    "/containers/{container_no}/customs-worksheet",
+    response_model=CustomsWorksheetResponse,
+)
+async def get_customs_worksheet_endpoint(
+    container_no: str,
+    db: AsyncSession = Depends(get_db),
+    _current_user: CurrentUser = Depends(
+        require_permission("customs_declaration", "view")
+    ),
+) -> CustomsWorksheetResponse:
+    """Phiếu nhập liệu tờ khai dưới dạng dữ liệu, để hiển thị trên web.
+
+    Cùng nguồn với bản .docx nên hai bên không thể lệch nhau — xem trên màn
+    hình rồi tải file về mà thấy khác nhau là kiểu lỗi phá hết lòng tin.
+    """
+    container = await get_container_by_no(db, container_no)
+    if container is None:
+        raise HTTPException(status_code=404, detail="Container not found")
+
+    sections = await collect_worksheet(db, container)
+    fields = [field for section in sections for field in section.fields]
+    return CustomsWorksheetResponse(
+        container_no=container.container_no,
+        sections=[
+            WorksheetSectionResponse(
+                title=section.title,
+                fields=[
+                    WorksheetFieldResponse(
+                        label=f.label,
+                        value=f.value,
+                        source_hint=f.source_hint,
+                        is_missing=f.is_missing,
+                        display=f.display,
+                    )
+                    for f in section.fields
+                ],
+            )
+            for section in sections
+        ],
+        field_count=len(fields),
+        missing_count=sum(1 for f in fields if f.is_missing),
+    )
+
+
+@container_router.get("/containers/{container_no}/customs-prefill")
+async def customs_prefill_endpoint(
+    container_no: str,
+    db: AsyncSession = Depends(get_db),
+    _current_user: CurrentUser = Depends(
+        require_permission("customs_declaration", "create")
+    ),
+) -> dict[str, str]:
+    """Giá trị đã đọc từ thông báo hải quan, để điền sẵn form tờ khai.
+
+    Trả dict rỗng khi chưa đọc được gì — "không tìm thấy trong Agentify" thay
+    vì đoán một luồng, vì luồng sai làm cả nhóm chạy nhầm việc.
+    """
+    prefill = await get_declaration_prefill(db, container_no)
+    if prefill is None:
+        raise HTTPException(status_code=404, detail="Container not found")
+    return prefill

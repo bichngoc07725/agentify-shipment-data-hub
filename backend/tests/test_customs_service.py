@@ -4,7 +4,34 @@ from uuid import uuid4
 
 from api.models import CustomsDeclarationCreateRequest, CustomsDeclarationUpdateRequest
 from db.models import CustomsChannel, CustomsDeclaration
-from services.customs_service import create_declaration, update_declaration
+from services.customs_service import (
+    create_declaration,
+    numeric_amount,
+    update_declaration,
+)
+
+
+class NumericAmountTest(unittest.TestCase):
+    """Ô Tiền thuế trên form là `input type="number"`. Đưa vào chuỗi có chữ thì
+    trình duyệt bỏ trắng ô mà không báo gì, nên tờ khai lưu xuống thiếu thuế."""
+
+    def test_strips_currency_and_thousand_separators(self) -> None:
+        self.assertEqual(numeric_amount("VND 42,150,000"), "42150000")
+
+    def test_reads_vietnamese_grouping(self) -> None:
+        self.assertEqual(numeric_amount("42.150.000 VND"), "42150000")
+
+    def test_keeps_decimals(self) -> None:
+        self.assertEqual(numeric_amount("USD 1,240.50"), "1240.50")
+
+    def test_keeps_decimals_written_the_vietnamese_way(self) -> None:
+        self.assertEqual(numeric_amount("1.240,50"), "1240.50")
+
+    def test_text_without_a_number_yields_nothing(self) -> None:
+        self.assertIsNone(numeric_amount("chưa có thông báo thuế"))
+
+    def test_empty_yields_nothing(self) -> None:
+        self.assertIsNone(numeric_amount(None))
 
 
 class CreateDeclarationTest(unittest.IsolatedAsyncioTestCase):

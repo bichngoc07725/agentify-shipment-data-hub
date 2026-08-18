@@ -5,8 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps.permissions import CurrentUser, require_permission
 from api.models import (
+    ChargeDraftResponse,
+    ComposedMailResponse,
     QuoteChargeResponse,
     QuoteCreateRequest,
+    QuoteDraftResponse,
     QuoteListResponse,
     QuoteResponse,
     QuoteUpdateRequest,
@@ -14,6 +17,12 @@ from api.models import (
 from db.database import get_db
 from db.models import Quote
 from services.container_service import get_container_by_no
+from services.quote_charge_draft_service import build_charge_draft_from_email
+from services.quote_draft_service import build_quote_draft_from_email
+from services.quote_mail_service import (
+    build_customer_quote_mail,
+    build_rate_request_mail,
+)
 from services.quote_service import (
     create_quote,
     delete_quote,
@@ -158,3 +167,60 @@ async def get_container_quotes_endpoint(
     return QuoteListResponse(
         items=[_to_response(quote) for quote in quotes], total=len(quotes)
     )
+
+
+@router.get("/emails/{email_id}/quote-draft", response_model=QuoteDraftResponse)
+async def get_quote_draft_from_email_endpoint(
+    email_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _current_user: CurrentUser = Depends(require_permission("quote", "create")),
+) -> QuoteDraftResponse:
+    """Đọc lại email hỏi giá và trả về bản nháp báo giá để điền sẵn form.
+
+    Gắn quyền `quote.create` chứ không phải `quote.view`: đây là bước mở đầu
+    việc lập báo giá, và nó tốn một lượt gọi nhà cung cấp trích xuất — không
+    nên để mọi vai trò chỉ-xem cũng kích hoạt được.
+    """
+    draft = await build_quote_draft_from_email(db, email_id)
+    if draft is None:
+        raise HTTPException(status_code=404, detail="Email not found")
+    return QuoteDraftResponse(**draft)
+
+
+@router.get("/emails/{email_id}/charge-draft", response_model=ChargeDraftResponse)
+async def get_charge_draft_from_email_endpoint(
+    email_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _current_user: CurrentUser = Depends(require_permission("quote", "edit")),
+) -> ChargeDraftResponse:
+    """Đọc các dòng phí trong thư báo giá của hãng tàu, để nạp vào báo giá."""
+    draft = await build_charge_draft_from_email(db, email_id)
+    if draft is None:
+        raise HTTPException(status_code=404, detail="Email not found")
+    return ChargeDraftResponse(**draft)
+
+
+@router.get("/quotes/{quote_id}/rate-request-mail", response_model=ComposedMailResponse)
+async def get_rate_request_mail_endpoint(
+    quote_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _current_user: CurrentUser = Depends(require_permission("quote", "edit")),
+) -> ComposedMailResponse:
+    """Soạn sẵn thư hỏi cước gửi hãng tàu. Agentify không gửi hộ."""
+    quote = await get_quote(db, quote_id)
+    if quote is None:
+        raise HTTPException(status_code=404, detail="Quote not found")
+    return ComposedMailResponse(**build_rate_request_mail(quote))
+
+
+@router.get("/quotes/{quote_id}/customer-mail", response_model=ComposedMailResponse)
+async def get_customer_quote_mail_endpoint(
+    quote_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _current_user: CurrentUser = Depends(require_permission("quote", "edit")),
+) -> ComposedMailResponse:
+    """Soạn sẵn thư báo giá gửi khách, kèm bảng phí đã nhập."""
+    quote = await get_quote(db, quote_id)
+    if quote is None:
+        raise HTTPException(status_code=404, detail="Quote not found")
+    return ComposedMailResponse(**build_customer_quote_mail(quote))

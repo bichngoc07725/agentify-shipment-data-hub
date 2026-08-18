@@ -11,6 +11,8 @@ from api.routes.attachments import router as attachments_router
 from api.routes.app_home import router as app_home_router
 from api.routes.audit import router as audit_router
 from api.routes.auth import router as auth_router
+from api.routes.bookings import container_router as bookings_container_router
+from api.routes.bookings import router as bookings_router
 from api.routes.containers import router as containers_router
 from api.routes.customs import container_router as customs_container_router
 from api.routes.customs import router as customs_router
@@ -53,6 +55,8 @@ app.include_router(reconciliation_router)
 app.include_router(reconciliation_container_router)
 app.include_router(customs_router)
 app.include_router(customs_container_router)
+app.include_router(bookings_router)
+app.include_router(bookings_container_router)
 app.include_router(shipments_router)
 app.include_router(audit_router)
 app.include_router(erp_export_router)

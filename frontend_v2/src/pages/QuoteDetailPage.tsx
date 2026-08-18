@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { AlertTriangle, ChevronLeft, Plus, Trash2, Pencil, Save, X } from 'lucide-react';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
+import { AlertTriangle, ChevronLeft, Plus, Trash2, Pencil, Save, X, Sparkles, Mail, Send, Download } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { canManageQuote } from '../lib/permissions';
-import type { ChargeGroup, Quote, QuoteChargeInput, QuoteInput, QuoteStatus } from '../types/api';
+import { canManageQuote, canViewBooking } from '../lib/permissions';
+import type { ChargeGroup, ComposedMail, EmailListItem, Quote, QuoteChargeInput, QuoteDraft, QuoteInput, QuoteStatus } from '../types/api';
+import { MailComposerCard } from '../components/MailComposerCard';
+import { BookingCard } from '../components/BookingCard';
 import { fmtDate } from '../lib/format';
 
 const CHARGE_GROUPS: { id: ChargeGroup; label: string; hint: string }[] = [
@@ -66,32 +68,141 @@ const EMPTY_FORM: QuoteInput = {
   is_reefer: false,
   container_type: '',
   container_qty: null,
-  gross_weight_kg: '',
-  cargo_ready_date: '',
+  // Ngày và số phải là null khi trống, không phải chuỗi rỗng: backend nhận ''
+  // cho một trường date/number là 422, nên mọi lần lưu báo giá mới đều hỏng.
+  gross_weight_kg: null,
+  cargo_ready_date: null,
   incoterm: '',
   payment_term: '',
   transit_time: '',
-  valid_until: '',
+  valid_until: null,
   note: '',
   currency: 'USD',
   container_no: '',
   charges: [],
 };
 
+/** Ghép bản nháp đọc từ email vào form. Chỉ đụng vào ô mà email thực sự có —
+ *  ô nào không rút được thì để trống cho Sales tự điền. */
+function formFromDraft(draft: QuoteDraft): QuoteInput {
+  const f = draft.fields;
+  return {
+    ...EMPTY_FORM,
+    customer_name: f.customer_name ?? '',
+    pol: f.pol ?? '',
+    pod: f.pod ?? '',
+    commodity: f.commodity ?? '',
+    container_type: f.container_type ?? '',
+    container_qty: f.container_qty ?? null,
+    gross_weight_kg: f.gross_weight_kg ?? null,
+    // null chứ không phải '' — xem ghi chú ở EMPTY_FORM, chuỗi rỗng cho một ô
+    // date là 422 khi lưu.
+    cargo_ready_date: f.cargo_ready_date ?? null,
+    incoterm: f.incoterm ?? '',
+    payment_term: f.payment_term ?? '',
+    // Nguồn gốc đi kèm giá trị: sau này tra ra được báo giá này dựng từ thư nào.
+    note: draft.source_subject ? `Tạo từ email: ${draft.source_subject}` : '',
+  };
+}
+
 export function QuoteDetailPage() {
   const { quoteId } = useParams<{ quoteId: string }>();
   const isNew = quoteId === 'new';
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const canManage = canManageQuote(user?.role);
+
+  // Bản nháp do trang chi tiết email chuyển sang, nếu Sales bấm "Tạo báo giá
+  // từ email này".
+  const draft = (location.state as { draft?: QuoteDraft } | null)?.draft;
 
   const [quote, setQuote] = useState<Quote | null>(null);
   const [loading, setLoading] = useState(!isNew);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(isNew);
-  const [form, setForm] = useState<QuoteInput>(EMPTY_FORM);
+  const [form, setForm] = useState<QuoteInput>(
+    isNew && draft ? formFromDraft(draft) : EMPTY_FORM,
+  );
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const [composed, setComposed] = useState<{ title: string; hint: string; mail: ComposedMail } | null>(null);
+  const [emailPicker, setEmailPicker] = useState<EmailListItem[] | null>(null);
+  const [mailBusy, setMailBusy] = useState(false);
+  const [mailError, setMailError] = useState<string | null>(null);
+
+  async function openRateRequestMail() {
+    if (!quoteId) return;
+    setMailBusy(true); setMailError(null); setEmailPicker(null);
+    try {
+      setComposed({
+        title: 'Thư hỏi cước gửi hãng tàu',
+        hint: 'Agentify không gửi thư thay bạn. Chép nội dung này hoặc mở trong Gmail rồi tự bấm gửi.',
+        mail: await api.getRateRequestMail(quoteId),
+      });
+    } catch (e: unknown) {
+      setMailError(e instanceof Error ? e.message : 'Không soạn được thư');
+    } finally { setMailBusy(false); }
+  }
+
+  async function openCustomerMail() {
+    if (!quoteId) return;
+    setMailBusy(true); setMailError(null); setEmailPicker(null);
+    try {
+      setComposed({
+        title: 'Thư báo giá gửi khách',
+        hint: 'Nội dung dựng từ đúng các dòng phí đang có trong báo giá. Sửa lại báo giá thì soạn lại thư.',
+        mail: await api.getCustomerQuoteMail(quoteId),
+      });
+    } catch (e: unknown) {
+      setMailError(e instanceof Error ? e.message : 'Không soạn được thư');
+    } finally { setMailBusy(false); }
+  }
+
+  async function openChargeImport() {
+    setMailBusy(true); setMailError(null); setComposed(null);
+    try {
+      const res = await api.listEmails({ page: 1, page_size: 30 });
+      setEmailPicker(res.items);
+    } catch (e: unknown) {
+      setMailError(e instanceof Error ? e.message : 'Không tải được danh sách thư');
+    } finally { setMailBusy(false); }
+  }
+
+  async function importChargesFrom(emailId: string) {
+    setMailBusy(true); setMailError(null);
+    try {
+      const draft = await api.getChargeDraftFromEmail(emailId);
+      if (draft.charges.length === 0) {
+        setMailError(
+          `Không tìm thấy dòng phí nào trong thư "${draft.source_subject ?? ''}" — không tìm thấy trong Agentify.`,
+        );
+        return;
+      }
+      // Thêm vào chứ không thay thế: báo giá có thể đã có phí local do Sales tự
+      // nhập, xoá sạch để lấy phí hãng tàu là làm mất công của người dùng.
+      setForm(prev => ({
+        ...prev,
+        charges: [
+          ...prev.charges,
+          ...draft.charges.map(c => ({
+            charge_group: c.charge_group,
+            charge_code: c.charge_code,
+            description: c.description,
+            unit_price: c.unit_price,
+            currency: c.currency,
+            quantity: c.quantity,
+          })),
+        ],
+      }));
+      setEditing(true);
+      setEmailPicker(null);
+      setMailError(null);
+    } catch (e: unknown) {
+      setMailError(e instanceof Error ? e.message : 'Không đọc được phí từ thư');
+    } finally { setMailBusy(false); }
+  }
 
   const load = useCallback(async () => {
     if (isNew || !quoteId) return;
@@ -188,6 +299,16 @@ export function QuoteDetailPage() {
             </div>
             <h1 style={{ fontSize: 22, fontWeight: 600 }}>{isNew ? 'Tạo báo giá mới' : quote?.quote_no}</h1>
           </div>
+          {isNew && draft && (
+            <div className="banner banner-info" style={{ flex: 1 }}>
+              <Sparkles size={16} />
+              <span>
+                {draft.fields_found.length > 0
+                  ? `Đã điền ${draft.fields_found.length} trường từ email "${draft.source_subject}" (${draft.fields_found.join(', ')}). Kiểm tra lại trước khi lưu — giá gửi khách là trách nhiệm của bạn.`
+                  : `Đọc email "${draft.source_subject}" nhưng không rút được trường nào — không tìm thấy trong Agentify. Mời điền tay.`}
+              </span>
+            </div>
+          )}
           {canManage && !isNew && !editing && (
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="btn btn-secondary btn-sm" onClick={() => setEditing(true)}>
@@ -315,6 +436,74 @@ export function QuoteDetailPage() {
         <label className="form-label">Ghi chú</label>
         <textarea className="form-textarea" value={form.note ?? ''} onChange={e => updateField('note', e.target.value)} disabled={readOnly} rows={2} />
       </div>
+
+      {/* Vòng hỏi giá: xin cước hãng tàu → nạp phí từ thư trả lời → báo giá khách.
+          Agentify soạn nội dung, người dùng tự bấm gửi trong Gmail. */}
+      {canManage && !isNew && (
+        <section>
+          <h2 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+            Trao đổi thư
+          </h2>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn btn-secondary btn-sm" onClick={openRateRequestMail} disabled={mailBusy}>
+              <Mail size={14} /> Soạn thư hỏi cước hãng tàu
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={openChargeImport} disabled={mailBusy}>
+              <Download size={14} /> Nạp phí từ thư hãng tàu trả lời
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={openCustomerMail} disabled={mailBusy}>
+              <Send size={14} /> Soạn thư báo giá gửi khách
+            </button>
+          </div>
+          {mailError && <div style={{ color: 'var(--danger)', fontSize: 12, marginTop: 8 }}>{mailError}</div>}
+
+          {composed && (
+            <MailComposerCard
+              title={composed.title}
+              hint={composed.hint}
+              mail={composed.mail}
+              onClose={() => setComposed(null)}
+            />
+          )}
+
+          {emailPicker && (
+            <div className="card" style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <strong style={{ fontSize: 14 }}>Chọn thư trả lời của hãng tàu</strong>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                Agentify sẽ đọc các dòng phí trong thư và thêm vào bảng phí bên dưới. Bạn kiểm tra lại rồi bấm Lưu.
+              </p>
+              {emailPicker.length === 0 ? (
+                <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Không có thư nào trong hệ thống.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
+                  {emailPicker.map(e => (
+                    <button
+                      key={e.id}
+                      className="btn btn-ghost btn-sm"
+                      style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+                      disabled={mailBusy}
+                      onClick={() => importChargesFrom(e.id)}
+                    >
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {e.subject} — <span style={{ color: 'var(--text-muted)' }}>{e.from_email}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setEmailPicker(null)}>
+                Huỷ
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Bước 2 bắt đầu ngay trên báo giá, không phải trên trang container:
+          lúc đi đặt chỗ thì hãng tàu chưa cấp container nào. */}
+      {!isNew && quoteId && canViewBooking(user?.role) && (
+        <BookingCard quoteId={quoteId} role={user?.role} />
+      )}
 
       {/* Charges — 3 blocks per BA Spec Bước 1 Luồng C */}
       <section>
