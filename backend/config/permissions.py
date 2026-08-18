@@ -193,15 +193,44 @@ CONTAINER_FACT_FIELD_GROUPS: dict[str, str] = {
     "ata": "operation",
     "do_no": "operation",
     "free_time_days": "operation",
+    # Kết quả xử lý hải quan — Ops sở hữu, đúng như `customs_declaration.create`.
+    "customs_lane": "operation",
+    "customs_registered_at": "operation",
+    "customs_cleared_at": "operation",
+    "customs_office": "operation",
+    "carrier": "operation",
     # document: commercial/paper trail fields — Docs owns these.
     "bl_no": "document",
     "po_no": "document",
+    # Mã HS nằm trên hoá đơn thương mại và là căn cứ khai hải quan — thuộc dấu
+    # vết chứng từ, Docs sở hữu. `invoice_no` KHÔNG thêm ở đây: nó đã được xếp
+    # vào nhóm finance bên dưới từ trước, và khai hai lần trong cùng một dict
+    # thì Python lặng lẽ lấy dòng sau — một mâu thuẫn không ai thấy.
+    "hs_code": "document",
+    # Con số mô tả lô hàng, đọc từ Invoice/Packing List — Docs sở hữu.
+    "packages": "document",
+    "gross_weight_kg": "document",
+    "volume_cbm": "document",
+    # Các bên trên chứng từ — thuộc dấu vết giấy tờ, Docs sở hữu.
+    "shipper": "document",
+    "shipper_address": "document",
+    "shipper_tax_code": "document",
+    "consignee": "document",
+    "consignee_address": "document",
+    "consignee_tax_code": "document",
+    "notify_party": "document",
+    "customer_name": "document",
+    "issuer": "document",
+    "doc_date": "document",
+    "payment_term": "document",
     # finance: cost fields — Accountant owns these. Not yet produced by the
     # extraction pipeline (no charge/debit-note parser exists today), but
     # container_facts.field_name is free text, so a fact with one of these
     # names can already be created (e.g. by manual ingest) and must resolve
     # to the right group here.
     "debit_note_no": "finance",
+    # Tiền thuế là khoản chi, thuộc nhóm tài chính dù sinh ra ở khâu hải quan.
+    "customs_tax_amount": "finance",
     "invoice_no": "finance",
     "invoice_amount": "finance",
     "charge_amount": "finance",

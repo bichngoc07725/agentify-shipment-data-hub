@@ -119,8 +119,12 @@ class GenerateDemoEmailCorpusTest(unittest.TestCase):
         records = build_records()
         trip = [r for r in records if r.container_key == "roundtrip_rfq"]
 
-        self.assertEqual(len(trip), 4)
-        legs = ["KHACH>AGENTIFY", "AGENTIFY>HANGTAU", "HANGTAU>AGENTIFY", "AGENTIFY>KHACH"]
+        self.assertEqual(len(trip), 9)
+        legs = [
+            "KHACH>AGENTIFY", "AGENTIFY>HANGTAU", "HANGTAU>AGENTIFY",
+            "AGENTIFY>KHACH", "AGENTIFY>HANGTAU", "HANGTAU>AGENTIFY",
+            "KHACH>AGENTIFY", "KHACH>AGENTIFY", "HAIQUAN>AGENTIFY",
+        ]
         for record, leg in zip(trip, legs, strict=True):
             self.assertTrue(record.title.startswith(f"{DEMO_TAG}[{leg}]"), record.title)
 
@@ -128,16 +132,32 @@ class GenerateDemoEmailCorpusTest(unittest.TestCase):
         trip = [r for r in build_records() if r.container_key == "roundtrip_rfq"]
 
         self.assertEqual(
-            [r.direction for r in trip], [INBOUND, OUTBOUND, INBOUND, OUTBOUND]
+            [r.direction for r in trip],
+            [INBOUND, OUTBOUND, INBOUND, OUTBOUND, OUTBOUND, INBOUND,
+             INBOUND, INBOUND, INBOUND],
         )
 
-    def test_round_trip_never_mentions_a_container_before_booking(self) -> None:
-        # Cả 4 chặng xảy ra TRƯỚC khi đặt chỗ, nên chưa thể có số container —
-        # để lọt vào sẽ dạy sai luồng và làm hỏng phép đo trích xuất.
+    def test_container_appears_only_in_the_booking_confirmation(self) -> None:
+        # Năm chặng đầu xảy ra TRƯỚC khi hãng tàu cấp container, nên chưa thể có
+        # số cont — để lọt vào sẽ dạy sai luồng. Chặng 6 là thư xác nhận, và đó
+        # đúng là khoảnh khắc container xuất hiện lần đầu trong cả câu chuyện.
         trip = [r for r in build_records() if r.container_key == "roundtrip_rfq"]
 
-        for record in trip:
-            self.assertNotIn("MSKU6512347", record.title + record.body)
+        for record in trip[:5]:
+            self.assertNotIn("MSKU6512347", record.title + record.body, record.slug)
+        # Từ chặng xác nhận trở đi container đã tồn tại và phải được nhắc tới.
+        for record in trip[5:]:
+            self.assertIn("MSKU6512347", record.title + record.body, record.slug)
+
+    def test_booking_confirmation_carries_all_three_cutoffs(self) -> None:
+        # Ba mốc chốt là thứ Bước 2 tồn tại để theo dõi; thiếu một mốc trong thư
+        # xác nhận nghĩa là demo không dựng lại được cảnh báo rớt chuyến.
+        confirmation = next(
+            r for r in build_records() if r.slug.endswith("06-hang-tau-xac-nhan")
+        )
+
+        for keyword in ("SI cut-off", "VGM cut-off", "Gate-in cut-off", "Empty pick-up depot"):
+            self.assertIn(keyword, confirmation.body)
 
     def test_carrier_reply_carries_its_charge_table_in_the_body(self) -> None:
         # Đây là đầu vào của nút "Nạp phí từ thư hãng tàu trả lời"; đưa bảng phí

@@ -28,12 +28,19 @@ from api.models import (
     ProcessedEmailIngestRequest,
 )
 from db.models import Container
-from gmail_service.adapter import SUMMARY_FIELDS
+from gmail_service.adapter import (
+    CARGO_SUMMARY_FIELDS,
+    SUMMARY_FIELDS,
+    CUSTOMS_SUMMARY_FIELDS,
+    PARTY_ATTRIBUTES,
+    PARTY_OBJECT_FIELDS,
+    PARTY_SUMMARY_FIELDS,
+)
 from gmail_service.deterministic_extract import (
     extract_deterministic,
     find_container_numbers,
 )
-from gmail_service.field_extract import extract_fields
+from gmail_service.field_extract import extract_fields, run_extraction_in_thread
 from gmail_service.pipeline import process_image_attachment
 from services.aggregation_service import normalize_container_no
 from services.ingestion_service import ingest_processed_email
@@ -56,8 +63,14 @@ def _subject_from(content: str, source_label: str | None, channel: str) -> str:
         (line.strip() for line in content.splitlines() if line.strip()), ""
     )
     prefix = source_label or CHANNEL_LABELS.get(channel, channel)
-    subject = f"{prefix}: {first_line}" if first_line else prefix
-    return subject[:SUBJECT_MAX_CHARS]
+    if not first_line:
+        return prefix[:SUBJECT_MAX_CHARS]
+    # Nhãn nguồn đã là chính dòng đầu (người dán chép cả tiêu đề, hoặc script
+    # nạp demo truyền tiêu đề làm nhãn) thì ghép vào sẽ ra "X: X" rồi bị cắt
+    # cụt ở 160 ký tự — tiêu đề trong danh sách thư thành không đọc nổi.
+    if first_line.startswith(prefix) or prefix.startswith(first_line):
+        return max(first_line, prefix, key=len)[:SUBJECT_MAX_CHARS]
+    return f"{prefix}: {first_line}"[:SUBJECT_MAX_CHARS]
 
 
 def _persist_manual_image(image_bytes: bytes, filename: str) -> str:
@@ -231,6 +244,25 @@ def build_facts(payload: ManualIngestRequest, fields: dict) -> list[IngestFactRe
         for field_name in SUMMARY_FIELDS:
             add(field_name, identifiers.get(field_name) or route.get(field_name), container_no)
 
+        # Ba nhóm dưới đây dùng CHUNG danh sách với đường Gmail. Đây là hai
+        # đường tạo fact khác nhau; thêm trường ở một bên mà quên bên kia thì
+        # cùng một email, dán tay và sync về, lại cho ra hồ sơ khác nhau.
+        for party_name in PARTY_OBJECT_FIELDS:
+            party = container_fields.get(party_name) or {}
+            for attribute, suffix in PARTY_ATTRIBUTES:
+                add(f"{party_name}{suffix}", party.get(attribute), container_no)
+
+        for field_name in PARTY_SUMMARY_FIELDS:
+            add(field_name, container_fields.get(field_name), container_no)
+
+        cargo = container_fields.get("cargo") or {}
+        for source_attr, field_name in CARGO_SUMMARY_FIELDS:
+            add(field_name, cargo.get(source_attr), container_no)
+
+        customs = container_fields.get("customs") or {}
+        for source_attr, field_name in CUSTOMS_SUMMARY_FIELDS:
+            add(field_name, customs.get(source_attr), container_no)
+
         for seal_no in identifiers.get("seal_no") or []:
             add("seal_no", seal_no, container_no)
 
@@ -262,7 +294,7 @@ def _first_line(content: str, fallback: str = "") -> str:
 
 
 async def ingest_manual_content(db: AsyncSession, payload: ManualIngestRequest) -> dict:
-    fields = extract_from_content(payload)
+    fields = await run_extraction_in_thread(extract_from_content, payload)
     facts = build_facts(payload, fields)
     occurred_at = payload.occurred_at or datetime.now(UTC)
 

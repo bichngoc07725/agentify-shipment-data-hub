@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Mail, Paperclip, AlertTriangle } from 'lucide-react';
+import { Search, Mail, Paperclip, AlertTriangle, RefreshCw } from 'lucide-react';
 import { api } from '../lib/api';
 import type { EmailListItem } from '../types/api';
 import { fmtRelative, emailStatusLabel } from '../lib/format';
+
+// Trần của API là 100; lấy đúng trần để số lần bấm "Tải thêm" ít nhất có thể.
+const PAGE_SIZE = 100;
 
 const FILTERS = [
   { id: 'all', label: 'All' },
@@ -20,18 +23,29 @@ export function EmailsPage() {
   const [filter, setFilter] = useState('all');
   const [inputQ, setInputQ] = useState('');
   const [selected, setSelected] = useState<EmailListItem | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadedPages, setLoadedPages] = useState(1);
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null);
+  // Trang này trước đây nạp đúng một trang 50 thư rồi dừng, không có đường đi
+  // tiếp. Ô tìm kiếm lọc trên mảng ĐÃ TẢI, nên thư thứ 51 trở đi vừa không
+  // hiện vừa không tìm ra — người dùng kết luận "không có thư này trong hệ
+  // thống" trong khi nó nằm nguyên trong DB. Thư demo có ngày trong quá khứ
+  // nên là nhóm rơi khỏi danh sách đầu tiên.
+  const load = useCallback(async (page: number) => {
+    if (page === 1) setLoading(true);
+    else setLoadingMore(true);
+    setError(null);
     try {
-      const r = await api.listEmails({ page_size: 50 });
-      setItems(r.items); setTotal(r.total);
+      const r = await api.listEmails({ page, page_size: PAGE_SIZE });
+      setItems(prev => (page === 1 ? r.items : [...prev, ...r.items]));
+      setTotal(r.total);
+      setLoadedPages(page);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Lỗi tải email');
-    } finally { setLoading(false); }
+    } finally { setLoading(false); setLoadingMore(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(1); }, [load]);
 
   let displayed = items;
   if (filter === 'has_pdf') displayed = items.filter(e => e.has_pdf_attachments);
@@ -52,7 +66,22 @@ export function EmailsPage() {
         <div className="split-list-header">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h1 style={{ fontSize: 16, fontWeight: 600 }}>Emails</h1>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{total} tổng</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{total} tổng</span>
+              {/* Trang chỉ nạp một lần lúc mở. Thư đến sau đó — sync Gmail chạy
+                  xong, hay đồng nghiệp vừa dán một tin — thì danh sách vẫn là
+                  ảnh chụp cũ, và không có đường làm mới ngoài tải lại cả trang
+                  bằng phím tắt. Người dùng kết luận thư không về. */}
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => load(1)}
+                disabled={loading}
+                title="Tải lại danh sách thư"
+                aria-label="Tải lại danh sách thư"
+              >
+                <RefreshCw size={14} className={loading ? 'spin' : undefined} />
+              </button>
+            </div>
           </div>
           <div className="toolbar-search" style={{ maxWidth: '100%', height: 34 }}>
             <Search size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
@@ -93,6 +122,25 @@ export function EmailsPage() {
               <h3>No synced emails yet</h3>
               <p>Email xuất hiện sau khi Gmail được kết nối và sync hoàn tất.</p>
               <Link to="/setup" className="btn btn-primary btn-sm" style={{ marginTop: 12 }}>Connect Gmail</Link>
+            </div>
+          )}
+
+          {/* Tìm kiếm lọc trên mảng đã tải, nên phải nói rõ còn bao nhiêu thư
+              chưa vào — im lặng ở đây là để người dùng kết luận sai rằng thư
+              không tồn tại. */}
+          {!loading && !error && items.length < total && (
+            <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                Đang hiển thị {items.length}/{total} thư
+                {inputQ && ' — ô tìm kiếm chỉ lọc trong số đã tải'}.
+              </span>
+              <button
+                className="btn btn-secondary btn-sm"
+                disabled={loadingMore}
+                onClick={() => load(loadedPages + 1)}
+              >
+                {loadingMore ? 'Đang tải…' : `Tải thêm ${Math.min(PAGE_SIZE, total - items.length)} thư`}
+              </button>
             </div>
           )}
 

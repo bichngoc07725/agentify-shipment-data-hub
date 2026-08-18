@@ -18,6 +18,7 @@ from services.booking_service import (
     create_booking,
     get_booking,
     get_booking_prefill,
+    get_booking_prefill_from_email,
     get_booking_prefill_from_quote,
     list_bookings_for_container,
     list_bookings_for_quote,
@@ -84,7 +85,10 @@ async def update_booking_endpoint(
     db: AsyncSession = Depends(get_db),
     _current_user: CurrentUser = Depends(require_permission("booking", "edit")),
 ) -> BookingResponse:
-    updated = await update_booking(db, booking_id, payload)
+    try:
+        updated = await update_booking(db, booking_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if updated is None:
         raise HTTPException(status_code=404, detail="Booking not found")
     return _to_response(updated)
@@ -153,6 +157,24 @@ async def quote_booking_prefill_endpoint(
     prefill = await get_booking_prefill_from_quote(db, quote_id)
     if prefill is None:
         raise HTTPException(status_code=404, detail="Quote not found")
+    return prefill
+
+
+@container_router.get("/emails/{email_id}/booking-prefill")
+async def email_booking_prefill_endpoint(
+    email_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _current_user: CurrentUser = Depends(require_permission("booking", "create")),
+) -> dict[str, str]:
+    """Thông tin đặt chỗ đọc từ một thư người dùng chỉ định (Bước 2.4).
+
+    Ở thời điểm cập nhật theo xác nhận hãng tàu, chỗ đặt chưa gắn container nên
+    không tra được `container_facts`, còn báo giá thì không biết số booking lẫn
+    ba mốc cut-off. Thư xác nhận là nguồn duy nhất có đủ.
+    """
+    prefill = await get_booking_prefill_from_email(db, email_id)
+    if prefill is None:
+        raise HTTPException(status_code=404, detail="Email not found")
     return prefill
 
 

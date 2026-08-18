@@ -444,6 +444,7 @@ export interface QuoteDraftFields {
   container_type?: string | null;
   container_qty?: number | null;
   gross_weight_kg?: string | null;
+  cargo_ready_date?: string | null;
   incoterm?: string | null;
   payment_term?: string | null;
 }
@@ -478,6 +479,27 @@ export interface ChargeDraft {
   source_from: string | null;
   charges: ChargeDraftLine[];
   extraction_error: string | null;
+}
+
+export interface WorksheetField {
+  label: string;
+  value: string | null;
+  source_hint: string;
+  is_missing: boolean;
+  /** Chuỗi dựng sẵn ở server để web và file .docx hiển thị y hệt nhau. */
+  display: string;
+}
+
+export interface WorksheetSection {
+  title: string;
+  fields: WorksheetField[];
+}
+
+export interface CustomsWorksheet {
+  container_no: string;
+  sections: WorksheetSection[];
+  field_count: number;
+  missing_count: number;
 }
 
 export type BookingStatus = 'requested' | 'confirmed' | 'amended' | 'cancelled';
@@ -525,7 +547,13 @@ export interface BookingListResponse {
 export type BookingPrefill = Partial<
   Record<
     | 'booking_no' | 'vessel' | 'voyage' | 'pol' | 'pod' | 'etd' | 'eta'
-    | 'container_type' | 'container_qty' | 'customer_name' | 'commodity',
+    | 'container_type' | 'container_qty' | 'customer_name' | 'commodity'
+    // Ba mốc chốt về dưới dạng `YYYY-MM-DDTHH:MM`, đúng thứ ô `datetime-local`
+    // nhận — giữ nguyên giờ ghi trên thư hãng tàu, không quy đổi múi giờ.
+    | 'si_cutoff_at' | 'vgm_cutoff_at' | 'gate_in_cutoff_at' | 'empty_pickup_depot'
+    // Chỉ nguồn "đọc từ một thư cụ thể" trả về hai ô này: đó là thư xác nhận,
+    // nơi container lần đầu có số và hãng tàu tự xưng tên.
+    | 'container_no' | 'carrier',
     string
   >
 >;

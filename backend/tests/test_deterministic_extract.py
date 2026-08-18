@@ -2,12 +2,15 @@ import unittest
 from datetime import date
 
 from gmail_service.deterministic_extract import (
+    find_charges,
     CONFIDENCE_CHECKSUM_BAD,
     CONFIDENCE_CHECKSUM_OK,
     classify_document,
     extract_deterministic,
     find_container_numbers,
+    find_cutoffs,
     find_dates,
+    find_empty_pickup_depot,
     find_free_time_days,
     find_vessel_voyage,
     is_valid_container_no,
@@ -229,6 +232,21 @@ class ExtractDeterministicTest(unittest.TestCase):
         self.assertEqual(result["doc_type"], "customs_declaration")
         self.assertEqual(result["identifiers"]["declaration_no"], "108234567890")
 
+    def test_extracts_hs_code_written_with_dots(self) -> None:
+        # `6205.20.00` có dấu chấm nên không lọt qua lớp ký tự của các mã định
+        # danh khác; thiếu nó thì ô Mã HS trên form tờ khai trống dù thông báo
+        # hải quan ghi rõ.
+        result = extract_deterministic(
+            "", "", "Phân luồng      : Luồng Đỏ\nMã HS           : 6205.20.00"
+        )
+
+        self.assertEqual(result["identifiers"]["hs_code"], "6205.20.00")
+
+    def test_extracts_hs_code_from_the_english_label(self) -> None:
+        result = extract_deterministic("", "", "HS code: 0901.11.10")
+
+        self.assertEqual(result["identifiers"]["hs_code"], "0901.11.10")
+
     def test_bare_to_khai_in_title_does_not_yield_a_declaration_no(self) -> None:
         # The document's own title ("TO KHAI HANG HOA NHAP KHAU") contains
         # "to khai" constantly; only the full "so to khai" label should count.
@@ -251,3 +269,159 @@ class ExtractDeterministicTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VesselVoyageEdgeCaseTest(unittest.TestCase):
+    """Ba lỗi thật gặp trên chứng từ demo."""
+
+    def test_space_separated_vessel_and_voyage_on_one_line(self) -> None:
+        # "Vessel / Voyage: ONE COMMITMENT 145E" — luật cũ đòi dấu "/" giữa hai
+        # giá trị nên không khớp, rồi luật dự phòng lấy token đầu và cho ra
+        # voyage="ONE", tức là tên hãng tàu.
+        self.assertEqual(
+            find_vessel_voyage("Vessel / Voyage  : ONE COMMITMENT 145E"),
+            ("ONE COMMITMENT", "145E"),
+        )
+
+    def test_slash_separated_still_works(self) -> None:
+        self.assertEqual(
+            find_vessel_voyage("Vessel/Voyage : MSC ANNA / 235W"), ("MSC ANNA", "235W")
+        )
+
+    def test_vessel_alone_leaves_voyage_empty(self) -> None:
+        self.assertEqual(find_vessel_voyage("Vessel: MAERSK HANOI"), ("MAERSK HANOI", None))
+
+    def test_a_sentence_ending_in_vessel_does_not_swallow_the_next_line(self) -> None:
+        # "...rolled to the next vessel." + xuống dòng + "Best regards," từng
+        # cho ra tên tàu là "Best regards".
+        self.assertEqual(
+            find_vessel_voyage(
+                "Late submission will result in the container being rolled to the "
+                "next vessel.\n\nBest regards,\nONE Booking Desk"
+            ),
+            (None, None),
+        )
+
+    def test_voyage_must_look_like_a_voyage_code(self) -> None:
+        # Ràng buộc hình dạng là thứ chặn việc đọc tên hãng thành số chuyến.
+        self.assertEqual(find_vessel_voyage("Voyage: ONE COMMITMENT")[1], None)
+        self.assertEqual(find_vessel_voyage("Voyage: 2612S")[1], "2612S")
+
+
+CONFIRMATION_BODY = """We are pleased to confirm your booking as follows.
+
+Booking No       : ONE-BKG-260805
+Vessel / Voyage  : ONE COMMITMENT 145E
+ETD              : 2026-08-20
+
+CUT-OFF TIMES — please observe strictly:
+  SI cut-off       : 2026-08-18 16:00 (GMT+7)
+  VGM cut-off      : 2026-08-18 10:00 (GMT+7)
+  Gate-in cut-off  : 2026-08-19 15:00 (GMT+7)
+
+Empty pick-up depot: Nam Hai Dinh Vu depot, Hai Phong
+"""
+
+
+class CutoffTest(unittest.TestCase):
+    """Trễ một trong ba mốc là rớt chuyến. Thư hãng tàu ghi rõ cả ba, nhưng
+    trước đây không trường nào được giữ lại nên Ops phải gõ tay ở Bước 2.4."""
+
+    def test_reads_all_three_cutoffs(self) -> None:
+        self.assertEqual(
+            find_cutoffs(CONFIRMATION_BODY),
+            {
+                "si_cutoff_at": "2026-08-18T16:00",
+                "vgm_cutoff_at": "2026-08-18T10:00",
+                "gate_in_cutoff_at": "2026-08-19T15:00",
+            },
+        )
+
+    def test_stated_timezone_does_not_shift_the_wall_clock(self) -> None:
+        # "(GMT+7)" đứng ngay sau giờ. Quy về UTC rồi hiển thị lại theo máy
+        # người xem là cách chắc chắn nhất để mốc 16:00 hiện thành 09:00.
+        self.assertEqual(
+            find_cutoffs("SI cut-off: 2026-08-18 16:00 (GMT+7)")["si_cutoff_at"],
+            "2026-08-18T16:00",
+        )
+
+    def test_reads_day_first_dates(self) -> None:
+        self.assertEqual(
+            find_cutoffs("VGM cut off: 18/08/2026 10:00")["vgm_cutoff_at"],
+            "2026-08-18T10:00",
+        )
+
+    def test_reads_vietnamese_gate_in_label(self) -> None:
+        self.assertEqual(
+            find_cutoffs("Hạ bãi cut-off : 2026-08-19 15:00")["gate_in_cutoff_at"],
+            "2026-08-19T15:00",
+        )
+
+    def test_a_mail_without_cutoffs_yields_nothing(self) -> None:
+        self.assertEqual(find_cutoffs("Booking No: ONE-BKG-260805"), {})
+
+    def test_cutoffs_ride_along_in_the_route_block(self) -> None:
+        route = extract_deterministic("BOOKING CONFIRMATION", "", CONFIRMATION_BODY)["route"]
+
+        self.assertEqual(route["si_cutoff_at"], "2026-08-18T16:00")
+        self.assertEqual(route["empty_pickup_depot"], "Nam Hai Dinh Vu depot, Hai Phong")
+
+
+class EmptyPickupDepotTest(unittest.TestCase):
+    def test_reads_the_english_label(self) -> None:
+        self.assertEqual(
+            find_empty_pickup_depot(CONFIRMATION_BODY),
+            "Nam Hai Dinh Vu depot, Hai Phong",
+        )
+
+    def test_reads_the_vietnamese_label(self) -> None:
+        self.assertEqual(
+            find_empty_pickup_depot("Nơi lấy rỗng: Depot Tan Cang Long Binh"),
+            "Depot Tan Cang Long Binh",
+        )
+
+    def test_absent_yields_nothing(self) -> None:
+        self.assertIsNone(find_empty_pickup_depot("Booking confirmed, details follow."))
+
+
+class ChargeLineTest(unittest.TestCase):
+    """Bảng phí đọc bằng regex, để bước lập báo giá không phụ thuộc LLM."""
+
+    def test_reads_a_plain_charge_line(self) -> None:
+        charges = find_charges("Bunker Adjustment Factor    USD   130.00")
+
+        self.assertEqual(len(charges), 1)
+        self.assertEqual(charges[0]["description"], "Bunker Adjustment Factor")
+        self.assertEqual(charges[0]["amount"], 130.0)
+        self.assertEqual(charges[0]["currency"], "USD")
+
+    def test_reads_the_quantity_marker(self) -> None:
+        charges = find_charges("Ocean Freight 40HC     x2   USD 2,480.00")
+
+        self.assertEqual(charges[0]["quantity"], "2")
+        self.assertEqual(charges[0]["amount"], 2480.0)
+
+    def test_skips_the_total_line(self) -> None:
+        # Tổng cộng có cùng hình dạng nhưng cộng nó vào bảng phí sẽ nhân đôi
+        # giá trị báo giá.
+        charges = find_charges(
+            "Ocean Freight   USD 780.00\nTOTAL           USD 780.00"
+        )
+
+        self.assertEqual(len(charges), 1)
+
+    def test_ignores_lines_without_a_currency(self) -> None:
+        self.assertEqual(find_charges("Free time at destination: 10 days"), [])
+
+    def test_ignores_a_zero_amount(self) -> None:
+        self.assertEqual(find_charges("Waived fee   USD 0.00"), [])
+
+    def test_reads_a_whole_table(self) -> None:
+        charges = find_charges(
+            "Ocean Freight 40HC     x2   USD 2,480.00\n"
+            "Low Sulphur Surcharge       USD    88.00\n"
+            "Telex release fee           USD    30.00\n"
+        )
+
+        self.assertEqual(len(charges), 3)
+        self.assertEqual(sum(c["amount"] for c in charges), 2598.0)

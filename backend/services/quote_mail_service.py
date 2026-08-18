@@ -25,6 +25,18 @@ GROUP_LABELS: dict[ChargeGroup, str] = {
 _MISSING = "(chưa có)"
 
 
+def _qty(quantity: Decimal) -> str:
+    """Số lượng cho thư gửi khách: `2` chứ không phải `2.00`.
+
+    Cột lưu `Numeric` nên đọc ra luôn có phần thập phân. "2.00 container" trong
+    thư gửi khách đọc như máy in ra; giữ phần lẻ chỉ khi nó thật sự khác 0
+    (một số phí tính theo tấn hay CBM có số lẻ thật).
+    """
+    if quantity == quantity.to_integral_value():
+        return str(quantity.to_integral_value())
+    return str(quantity.normalize())
+
+
 def _or_missing(value: object) -> str:
     """Thiếu thì nói là thiếu. Một ô trống giữa thân thư khiến người đọc tưởng
     thông tin không quan trọng, trong khi thực ra là ta chưa biết."""
@@ -110,7 +122,11 @@ def build_customer_quote_mail(quote: Quote) -> dict[str, str]:
             label = charge.description or charge.charge_code
             lines.append(
                 f"  - {label}: {charge.amount} {charge.currency}"
-                + (f" (x{charge.quantity})" if charge.quantity and charge.quantity != 1 else "")
+                + (
+                    f" (x{_qty(charge.quantity)})"
+                    if charge.quantity and charge.quantity != 1
+                    else ""
+                )
             )
             total += charge.amount or Decimal("0")
         lines.append("")

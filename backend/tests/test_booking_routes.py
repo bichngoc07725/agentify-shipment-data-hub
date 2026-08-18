@@ -235,3 +235,37 @@ class BookingPrefillTest(BaseRouteTest):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AttachContainerLaterTest(BaseRouteTest):
+    def test_container_can_be_attached_when_the_carrier_confirms(self) -> None:
+        # Chỗ đặt mở lúc chưa có container; hãng tàu xác nhận rồi mới cấp số.
+        # Thiếu đường này thì mắt xích Bước 2 sang Bước 3 đứt hẳn.
+        booking = make_booking(container=SimpleNamespace(container_no="ONEU7041287"))
+        with patch(
+            "api.routes.bookings.update_booking", new=AsyncMock(return_value=booking)
+        ) as mock_update:
+            response = self.client.put(
+                f"/api/v1/bookings/{uuid4()}",
+                json={"container_no": "ONEU7041287", "status": "confirmed"},
+                headers=bearer_header(UserRole.OPS),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["container_no"], "ONEU7041287")
+        self.assertEqual(
+            mock_update.await_args.args[2].container_no, "ONEU7041287"
+        )
+
+    def test_attaching_an_unknown_container_is_400(self) -> None:
+        with patch(
+            "api.routes.bookings.update_booking",
+            new=AsyncMock(side_effect=ValueError("Container 'NOPE' not found")),
+        ):
+            response = self.client.put(
+                f"/api/v1/bookings/{uuid4()}",
+                json={"container_no": "NOPE"},
+                headers=bearer_header(UserRole.OPS),
+            )
+
+        self.assertEqual(response.status_code, 400)

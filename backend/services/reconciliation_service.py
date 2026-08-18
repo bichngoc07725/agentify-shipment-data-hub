@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from db.models import (
+    CustomsDeclaration,
     DebitNote,
     DebitNoteCharge,
     Quote,
@@ -42,6 +43,7 @@ ESCALATION_PCT_THRESHOLD = Decimal("0.05")
 
 DEFAULT_DAILY_DEMURRAGE_RATE = Decimal("50.00")
 DEMURRAGE_CHARGE_CODE = "DEMURRAGE_EST"
+CUSTOMS_TAX_CHARGE_CODE = "CUSTOMS_TAX"
 # If a real demurrage/storage charge already came in on a debit note, the
 # estimate would double-count it — skip generating one in that case.
 _DEMURRAGE_LIKE_CODES = {"DEM", "DEMURRAGE", "DET", "DETENTION", "STORAGE"}
@@ -150,6 +152,34 @@ def needs_approval_for(total_quoted: Decimal, total_variance: Decimal) -> bool:
     return abs(total_variance) > threshold
 
 
+def build_customs_tax_line(
+    declaration,
+) -> ReconciliationLineResult | None:
+    """Thuế hải quan như một khoản chi thực của lô hàng.
+
+    Thuế không nằm trong báo giá gửi khách — báo giá là tiền cước dịch vụ — nên
+    nó luôn là `extra_actual`. Bỏ nó ra ngoài đối soát khiến bức tranh chi phí
+    của lô thiếu đúng khoản thường lớn nhất, và kế toán phát hiện ra lúc quyết
+    toán thay vì lúc đối soát.
+    """
+    if declaration is None or declaration.tax_amount is None:
+        return None
+
+    amount = Decimal(str(declaration.tax_amount))
+    if amount <= 0:
+        return None
+
+    reference = f" theo tờ khai {declaration.declaration_no}" if declaration.declaration_no else ""
+    return ReconciliationLineResult(
+        charge_code=CUSTOMS_TAX_CHARGE_CODE,
+        quoted_amount=None,
+        actual_amount=amount,
+        variance=amount,
+        match_status="extra_actual",
+        note=f"Thuế hải quan{reference} — không nằm trong báo giá dịch vụ",
+    )
+
+
 async def build_reconciliation(
     db: AsyncSession, container_no: str, quote_id: UUID, created_by: UUID
 ) -> Reconciliation:
@@ -180,6 +210,19 @@ async def build_reconciliation(
         demurrage_line = compute_demurrage_estimate(container)
         if demurrage_line is not None:
             lines.append(demurrage_line)
+
+    if CUSTOMS_TAX_CHARGE_CODE not in {line.charge_code for line in lines}:
+        declaration = (
+            await db.execute(
+                select(CustomsDeclaration)
+                .where(CustomsDeclaration.container_id == container.id)
+                .order_by(CustomsDeclaration.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        tax_line = build_customs_tax_line(declaration)
+        if tax_line is not None:
+            lines.append(tax_line)
 
     total_quoted, total_actual, total_variance = totals_for(lines)
     escalate = needs_approval_for(total_quoted, total_variance)

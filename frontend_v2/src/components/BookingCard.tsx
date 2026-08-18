@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Ship, Sparkles, Clock, Mail } from 'lucide-react';
+import { Ship, Sparkles, Clock, Mail, Pencil } from 'lucide-react';
 import { api } from '../lib/api';
 import { canManageBooking } from '../lib/permissions';
-import type { Booking, BookingPrefill, BookingStatus, ComposedMail, Role } from '../types/api';
+import type {
+  Booking, BookingPrefill, BookingStatus, ComposedMail, EmailListItem, Role,
+} from '../types/api';
 import { MailComposerCard } from './MailComposerCard';
 import { fmtDate } from '../lib/format';
 
@@ -45,6 +47,7 @@ type FormState = {
   container_type: string;
   container_qty: string;
   empty_pickup_depot: string;
+  container_no: string;
   freight_rate: string;
   currency: string;
   note: string;
@@ -54,7 +57,7 @@ const EMPTY_FORM: FormState = {
   booking_no: '', status: 'requested', carrier: '', vessel: '', voyage: '',
   pol: '', pod: '', etd: '', eta: '',
   si_cutoff_at: '', vgm_cutoff_at: '', gate_in_cutoff_at: '',
-  container_type: '', container_qty: '', empty_pickup_depot: '',
+  container_type: '', container_qty: '', empty_pickup_depot: '', container_no: '',
   freight_rate: '', currency: 'USD', note: '',
 };
 
@@ -65,6 +68,15 @@ function localInputToIso(value: string): string | undefined {
   if (!value) return undefined;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+}
+
+/** ISO từ server -> chuỗi cho `datetime-local` (giờ máy, không có múi giờ). */
+function isoToLocalInput(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function cutoffTone(hours: number | null): 'danger' | 'warning' | 'info' {
@@ -99,12 +111,17 @@ export function BookingCard({
 }) {
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  // id của chỗ đặt đang sửa; null nghĩa là đang tạo mới. Bước 2 sống ở chỗ này:
+  // mở yêu cầu trước, hãng tàu xác nhận sau, và bản ghi phải sửa lại được —
+  // không có đường sửa thì đúng khoảnh khắc quan trọng nhất lại không ghi được.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [prefillNote, setPrefillNote] = useState<string | null>(null);
   const [mail, setMail] = useState<ComposedMail | null>(null);
   const [mailBusy, setMailBusy] = useState(false);
+  const [emailPicker, setEmailPicker] = useState<EmailListItem[] | null>(null);
 
   async function openBookingMail(bookingId: string) {
     setMailBusy(true); setError(null);
@@ -133,47 +150,115 @@ export function BookingCard({
     setForm(prev => ({ ...prev, [key]: value }));
   }
 
+  // Nguồn gợi ý đổi theo thời điểm của Bước 2, không theo trang đang đứng.
+  // Chưa có container (mới gửi yêu cầu đặt chỗ) thì chỉ báo giá mới nói được
+  // tuyến và thiết bị. Có container rồi — tức hãng tàu đã xác nhận — thì thư
+  // xác nhận mới là nguồn đúng, và nó là nguồn DUY NHẤT biết ba mốc cut-off.
+  const factSourceContainer = containerNo || form.container_no || null;
+
+  function applyFields(p: BookingPrefill, source: string) {
+    // Chỉ đếm ô thực sự điền được. Nguồn trả cả `customer_name`/`commodity`
+    // mà form đặt chỗ không có ô nào nhận; đếm cả chúng thì băng thông báo
+    // hứa nhiều hơn những gì người dùng nhìn thấy trên form.
+    const keys = (Object.keys(p) as (keyof BookingPrefill)[]).filter(
+      k => k in EMPTY_FORM && p[k],
+    );
+    if (keys.length === 0) {
+      setPrefillNote(`Không tìm thấy trong Agentify — ${source} không có thông tin đặt chỗ.`);
+      return;
+    }
+    setForm(prev => ({
+      ...prev,
+      booking_no: p.booking_no ?? prev.booking_no,
+      vessel: p.vessel ?? prev.vessel,
+      voyage: p.voyage ?? prev.voyage,
+      pol: p.pol ?? prev.pol,
+      pod: p.pod ?? prev.pod,
+      etd: p.etd ?? prev.etd,
+      eta: p.eta ?? prev.eta,
+      container_type: p.container_type ?? prev.container_type,
+      container_qty: p.container_qty ?? prev.container_qty,
+      container_no: p.container_no ?? prev.container_no,
+      carrier: p.carrier ?? prev.carrier,
+      // Đã ở dạng `datetime-local` từ nguồn, không đi qua `isoToLocalInput`:
+      // giờ trên thư là giờ tại cảng xếp, quy đổi múi giờ ở đây sẽ làm mốc
+      // 16:00 hiện thành giờ khác trên máy người xem.
+      si_cutoff_at: p.si_cutoff_at ?? prev.si_cutoff_at,
+      vgm_cutoff_at: p.vgm_cutoff_at ?? prev.vgm_cutoff_at,
+      gate_in_cutoff_at: p.gate_in_cutoff_at ?? prev.gate_in_cutoff_at,
+      empty_pickup_depot: p.empty_pickup_depot ?? prev.empty_pickup_depot,
+    }));
+    setPrefillNote(
+      `Đã điền ${keys.length} trường từ ${source} (${keys.join(', ')}). ` +
+      'Đây là gợi ý — kiểm tra lại trước khi lưu.',
+    );
+  }
+
+  /** Bước 2.4: người dùng vừa đọc thư xác nhận ở 2.3, để họ chỉ đúng thư đó.
+   *  Lúc này chỗ đặt vẫn chưa gắn container nên không có đường tự tìm ra thư,
+   *  và báo giá thì không bao giờ biết số booking lẫn ba mốc cut-off. */
+  async function openEmailPicker() {
+    setPrefillNote(null); setError(null);
+    try {
+      const res = await api.listEmails({ page: 1, page_size: 30 });
+      setEmailPicker(res.items);
+    } catch {
+      setError('Không tải được danh sách thư');
+    }
+  }
+
+  async function applyPrefillFromEmail(emailId: string) {
+    setEmailPicker(null);
+    try {
+      applyFields(await api.getBookingPrefillFromEmail(emailId), 'thư đã chọn');
+    } catch {
+      setPrefillNote('Không đọc được thư này.');
+    }
+  }
+
   async function applyPrefill() {
     setPrefillNote(null);
     try {
-      const p: BookingPrefill = quoteId
-        ? await api.getQuoteBookingPrefill(quoteId)
-        : await api.getBookingPrefill(containerNo!);
-      const keys = Object.keys(p) as (keyof BookingPrefill)[];
-      if (keys.length === 0) {
-        setPrefillNote(
-          quoteId
-            ? 'Không tìm thấy trong Agentify — báo giá này chưa có tuyến/thiết bị để suy ra.'
-            : 'Không tìm thấy trong Agentify — chưa có mail nào của lô này nhắc tới thông tin đặt chỗ.',
-        );
-        return;
+      if (factSourceContainer) {
+        applyFields(await api.getBookingPrefill(factSourceContainer), 'thư hãng tàu đã đọc');
+      } else {
+        applyFields(await api.getQuoteBookingPrefill(quoteId!), 'báo giá đã chốt');
       }
-      setForm(prev => ({
-        ...prev,
-        booking_no: p.booking_no ?? prev.booking_no,
-        vessel: p.vessel ?? prev.vessel,
-        voyage: p.voyage ?? prev.voyage,
-        pol: p.pol ?? prev.pol,
-        pod: p.pod ?? prev.pod,
-        etd: p.etd ?? prev.etd,
-        eta: p.eta ?? prev.eta,
-        container_type: p.container_type ?? prev.container_type,
-        container_qty: p.container_qty ?? prev.container_qty,
-      }));
-      setPrefillNote(
-        `Đã điền ${keys.length} trường từ ${quoteId ? 'báo giá đã chốt' : 'mail đã đọc'} ` +
-        `(${keys.join(', ')}). Đây là gợi ý — kiểm tra lại trước khi lưu.`,
-      );
     } catch {
       setPrefillNote('Không đọc được dữ liệu gợi ý.');
     }
   }
 
+  function startEdit(b: Booking) {
+    setEditingId(b.id);
+    setFormOpen(true);
+    setPrefillNote(null);
+    setForm({
+      booking_no: b.booking_no ?? '', status: b.status,
+      carrier: b.carrier ?? '', vessel: b.vessel ?? '', voyage: b.voyage ?? '',
+      pol: b.pol ?? '', pod: b.pod ?? '', etd: b.etd ?? '', eta: b.eta ?? '',
+      si_cutoff_at: isoToLocalInput(b.si_cutoff_at),
+      vgm_cutoff_at: isoToLocalInput(b.vgm_cutoff_at),
+      gate_in_cutoff_at: isoToLocalInput(b.gate_in_cutoff_at),
+      container_type: b.container_type ?? '',
+      container_qty: b.container_qty != null ? String(b.container_qty) : '',
+      empty_pickup_depot: b.empty_pickup_depot ?? '',
+      container_no: b.container_no ?? '',
+      freight_rate: b.freight_rate ?? '', currency: b.currency ?? 'USD',
+      note: b.note ?? '',
+    });
+  }
+
+  function closeForm() {
+    setFormOpen(false); setEditingId(null); setForm(EMPTY_FORM);
+    setError(null); setPrefillNote(null); setEmailPicker(null);
+  }
+
   async function submit() {
     setBusy(true); setError(null);
     try {
-      await api.createBooking({
-        container_no: containerNo ?? null,
+      const body = {
+        container_no: containerNo ?? form.container_no ?? null,
         quote_id: quoteId ?? null,
         booking_no: form.booking_no || undefined,
         status: form.status,
@@ -193,10 +278,10 @@ export function BookingCard({
         freight_rate: form.freight_rate || undefined,
         currency: form.currency || 'USD',
         note: form.note || undefined,
-      });
-      setFormOpen(false);
-      setForm(EMPTY_FORM);
-      setPrefillNote(null);
+      };
+      if (editingId) await api.updateBooking(editingId, body);
+      else await api.createBooking(body);
+      closeForm();
       load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Không lưu được chỗ đặt');
@@ -249,6 +334,12 @@ export function BookingCard({
                   <Mail size={14} /> Soạn thư đặt chỗ gửi hãng tàu
                 </button>
               )}
+              {canManage && (
+                <button className="btn btn-ghost btn-sm" style={{ marginTop: 8, marginLeft: 8 }}
+                  disabled={busy} onClick={() => startEdit(b)}>
+                  <Pencil size={14} /> Cập nhật sau khi hãng tàu xác nhận
+                </button>
+              )}
             </div>
           ))
         ) : (
@@ -268,12 +359,55 @@ export function BookingCard({
 
         {canManage && (formOpen ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <button className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={applyPrefill} disabled={busy}>
-              <Sparkles size={14} />{' '}
-              {quoteId ? 'Điền từ báo giá đã chốt' : 'Điền từ dữ liệu Agentify đã đọc trong mail'}
-            </button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className="btn btn-secondary btn-sm" onClick={applyPrefill} disabled={busy}>
+                <Sparkles size={14} />{' '}
+                {factSourceContainer
+                  ? 'Điền từ thư hãng tàu đã đọc'
+                  : 'Điền từ báo giá đã chốt'}
+              </button>
+              {/* Chỉ hiện khi đang SỬA: đó là lúc hãng tàu đã trả lời, và thư
+                  trả lời là nguồn duy nhất có số booking cùng ba mốc cut-off. */}
+              {editingId && (
+                <button className="btn btn-secondary btn-sm" onClick={openEmailPicker} disabled={busy}>
+                  <Mail size={14} /> Điền từ thư xác nhận của hãng tàu
+                </button>
+              )}
+            </div>
             {prefillNote && (
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{prefillNote}</div>
+            )}
+
+            {emailPicker && (
+              <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <strong style={{ fontSize: 14 }}>Chọn thư xác nhận của hãng tàu</strong>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Agentify đọc số booking, tàu/chuyến, số container, ba mốc cut-off và depot
+                  trong thư rồi điền vào form. Bạn kiểm tra lại rồi bấm Lưu.
+                </p>
+                {emailPicker.length === 0 ? (
+                  <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Không có thư nào trong hệ thống.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
+                    {emailPicker.map(e => (
+                      <button
+                        key={e.id}
+                        className="btn btn-ghost btn-sm"
+                        style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+                        onClick={() => applyPrefillFromEmail(e.id)}
+                      >
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {e.subject} — <span style={{ color: 'var(--text-muted)' }}>{e.from_email}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }}
+                  onClick={() => setEmailPicker(null)}>
+                  Huỷ
+                </button>
+              </div>
             )}
 
             <Row>
@@ -292,6 +426,12 @@ export function BookingCard({
               <Field label="Tên tàu"><input className="form-input" value={form.vessel} onChange={e => setField('vessel', e.target.value)} disabled={busy} /></Field>
               <Field label="Số chuyến"><input className="form-input" value={form.voyage} onChange={e => setField('voyage', e.target.value)} disabled={busy} /></Field>
               <Field label="Depot lấy rỗng"><input className="form-input" value={form.empty_pickup_depot} onChange={e => setField('empty_pickup_depot', e.target.value)} disabled={busy} /></Field>
+              {quoteId && (
+                <Field label="Số container (hãng tàu cấp)">
+                  <input className="form-input" placeholder="chưa có khi mới gửi yêu cầu"
+                    value={form.container_no} onChange={e => setField('container_no', e.target.value)} disabled={busy} />
+                </Field>
+              )}
             </Row>
 
             <Row>
@@ -330,9 +470,9 @@ export function BookingCard({
             {error && <div style={{ color: 'var(--danger)', fontSize: 12 }}>{error}</div>}
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="btn btn-primary btn-sm" onClick={submit} disabled={busy}>
-                {busy ? 'Đang lưu…' : 'Lưu chỗ đặt'}
+                {busy ? 'Đang lưu…' : editingId ? 'Lưu thay đổi' : 'Lưu chỗ đặt'}
               </button>
-              <button className="btn btn-ghost btn-sm" onClick={() => { setFormOpen(false); setError(null); setPrefillNote(null); }} disabled={busy}>
+              <button className="btn btn-ghost btn-sm" onClick={closeForm} disabled={busy}>
                 Huỷ
               </button>
             </div>

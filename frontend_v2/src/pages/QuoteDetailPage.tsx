@@ -95,6 +95,9 @@ function formFromDraft(draft: QuoteDraft): QuoteInput {
     container_type: f.container_type ?? '',
     container_qty: f.container_qty ?? null,
     gross_weight_kg: f.gross_weight_kg ?? null,
+    // null chứ không phải '' — xem ghi chú ở EMPTY_FORM, chuỗi rỗng cho một ô
+    // date là 422 khi lưu.
+    cargo_ready_date: f.cargo_ready_date ?? null,
     incoterm: f.incoterm ?? '',
     payment_term: f.payment_term ?? '',
     // Nguồn gốc đi kèm giá trị: sau này tra ra được báo giá này dựng từ thư nào.

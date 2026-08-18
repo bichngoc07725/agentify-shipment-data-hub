@@ -11,7 +11,9 @@ On conflict, identifiers from rules win; everything else prefers the LLM.
 
 from __future__ import annotations
 
-from typing import Any
+import asyncio
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from gmail_service.config import EXTRACTION_PROVIDER
 from gmail_service.deterministic_extract import classify_document, extract_deterministic
@@ -20,6 +22,8 @@ from gmail_service.llm_client import (
     call_azure_openai,
     call_gemini,
 )
+
+T = TypeVar("T")
 
 # Rules are more reliable than a model for these exact-format codes.
 RULE_OWNED_IDENTIFIERS = (
@@ -452,3 +456,19 @@ def merge_records(rules: dict[str, Any], llm: dict[str, Any]) -> dict[str, Any]:
         merged["doc_type_confidence"] = rules["doc_type_confidence"]
 
     return merged
+
+
+async def run_extraction_in_thread(func: Callable[..., T], *args: Any) -> T:
+    """Chạy một hàm trích xuất (chặn) ở luồng khác, trả quyền cho event loop.
+
+    `llm_client` gọi HTTP bằng `urllib.request.urlopen` — đồng bộ. Gọi thẳng nó
+    từ trong một route `async def` sẽ giữ chặt event loop suốt thời gian chờ
+    nhà cung cấp trả lời: đo thực tế một lần `/manual-ingest/preview` làm
+    `/health` treo 7,5 giây, và timeout đang đặt 60s cho Gemini, 120s cho
+    Azure. Nghĩa là MỘT thư dài làm cả API đứng hình với MỌI người dùng.
+
+    Không đổi `llm_client` sang async vì đường trích xuất còn được gọi từ các
+    script đồng bộ (`scripts/`, worker sync Gmail); đẩy sang luồng khác ở đúng
+    ranh giới web là chỗ sửa nhỏ nhất mà đủ.
+    """
+    return await asyncio.to_thread(func, *args)

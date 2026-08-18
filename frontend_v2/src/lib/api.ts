@@ -52,7 +52,7 @@ import type {
   AdminUser, AdminUserListResponse, AppHomeResponse, AuditLogListResponse,
   Booking, BookingInput, BookingListResponse, BookingPrefill, ContainerDetailResponse,
   ContainerFact, ContainerFactsResponse, ContainerListResponse, ContainerRiskProfile, CustomsDeclaration,
-  CustomsDeclarationListResponse, DebitNote, DebitNoteInput, DebitNoteListResponse,
+  CustomsDeclarationListResponse, CustomsWorksheet, DebitNote, DebitNoteInput, DebitNoteListResponse,
   EmailDetail, EmailListResponse,
   ExceptionActionResult, ExtractionCapabilityStatus, FieldImageConfirmResult, FieldImageListResponse, FieldImagePreview,
   GmailConnection, HealthResponse, LoginRequest, LoginResponse,
@@ -183,11 +183,17 @@ export const api = {
     }),
   getCustomsDeclaration: (id: string) =>
     req<CustomsDeclaration>(`/api/v1/customs/declarations/${encodeURIComponent(id)}`),
+  getCustomsPrefill: (no: string) =>
+    req<Record<string, string>>(`/api/v1/containers/${encodeURIComponent(no)}/customs-prefill`),
+  getCustomsWorksheet: (no: string) =>
+    req<CustomsWorksheet>(`/api/v1/containers/${encodeURIComponent(no)}/customs-worksheet`),
+  customsWorksheetDocxUrl: (no: string) =>
+    `/api/v1/containers/${encodeURIComponent(no)}/customs-worksheet/docx`,
   getContainerCustoms: (no: string) =>
     req<CustomsDeclarationListResponse>(`/api/v1/containers/${encodeURIComponent(no)}/customs`),
   createBooking: (body: BookingInput) =>
     req<Booking>('/api/v1/bookings', { method: 'POST', body: JSON.stringify(body) }),
-  updateBooking: (id: string, body: Omit<BookingInput, 'container_no'>) =>
+  updateBooking: (id: string, body: BookingInput) =>
     req<Booking>(`/api/v1/bookings/${encodeURIComponent(id)}`, {
       method: 'PUT',
       body: JSON.stringify(body),
@@ -200,6 +206,8 @@ export const api = {
     req<BookingListResponse>(`/api/v1/quotes/${encodeURIComponent(quoteId)}/bookings`),
   getQuoteBookingPrefill: (quoteId: string) =>
     req<BookingPrefill>(`/api/v1/quotes/${encodeURIComponent(quoteId)}/booking-prefill`),
+  getBookingPrefillFromEmail: (emailId: string) =>
+    req<BookingPrefill>(`/api/v1/emails/${encodeURIComponent(emailId)}/booking-prefill`),
   getBookingRequestMail: (bookingId: string) =>
     req<ComposedMail>(`/api/v1/bookings/${encodeURIComponent(bookingId)}/request-mail`),
   getQuoteDraftFromEmail: (emailId: string) =>

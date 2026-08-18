@@ -184,29 +184,53 @@ async def list_emails(
     total_result = await db.execute(count_stmt)
     emails = list(result.scalars().all())
 
-    items: list[dict] = []
-    for email in emails:
-        attachments_count_result = await db.execute(
-            select(func.count(Attachment.id)).where(Attachment.email_id == email.id)
-        )
-        facts_count_result = await db.execute(
-            select(func.count(ContainerFact.id)).where(ContainerFact.email_id == email.id)
-        )
-        linked_containers_result = await db.execute(
-            select(Container.container_no)
-            .join(ContainerFact, ContainerFact.container_id == Container.id)
-            .where(ContainerFact.email_id == email.id)
-            .group_by(Container.container_no)
+    # Ba truy vấn gộp cho cả trang, không phải ba truy vấn MỖI thư. Trước đây
+    # một trang 100 thư là 301 lượt đi-về DB; danh sách thư là màn hình mở
+    # nhiều nhất nên đó là chi phí trả đi trả lại suốt ngày.
+    email_ids = [email.id for email in emails]
+    if not email_ids:
+        return [], total_result.scalar_one()
+
+    attachment_counts = dict(
+        (
+            await db.execute(
+                select(Attachment.email_id, func.count(Attachment.id))
+                .where(Attachment.email_id.in_(email_ids))
+                .group_by(Attachment.email_id)
+            )
+        ).all()
+    )
+    fact_counts = dict(
+        (
+            await db.execute(
+                select(ContainerFact.email_id, func.count(ContainerFact.id))
+                .where(ContainerFact.email_id.in_(email_ids))
+                .group_by(ContainerFact.email_id)
+            )
+        ).all()
+    )
+
+    linked: dict[UUID, list[str]] = {}
+    rows = (
+        await db.execute(
+            select(ContainerFact.email_id, Container.container_no)
+            .join(Container, ContainerFact.container_id == Container.id)
+            .where(ContainerFact.email_id.in_(email_ids))
+            .group_by(ContainerFact.email_id, Container.container_no)
             .order_by(Container.container_no.asc())
         )
+    ).all()
+    for email_id, container_no in rows:
+        linked.setdefault(email_id, []).append(container_no)
 
-        items.append(
-            {
-                "email": email,
-                "attachment_count": attachments_count_result.scalar_one(),
-                "fact_count": facts_count_result.scalar_one(),
-                "linked_containers": list(linked_containers_result.scalars().all()),
-            }
-        )
+    items = [
+        {
+            "email": email,
+            "attachment_count": attachment_counts.get(email.id, 0),
+            "fact_count": fact_counts.get(email.id, 0),
+            "linked_containers": linked.get(email.id, []),
+        }
+        for email in emails
+    ]
 
     return items, total_result.scalar_one()

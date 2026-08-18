@@ -1,5 +1,6 @@
 import unittest
 from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
 
 from db.models import Container
 from services.exception_service import (
@@ -385,3 +386,155 @@ class RiskProfileTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RedLaneFreeTimeTest(unittest.TestCase):
+    """Luồng Đỏ phải đẩy cảnh báo phí lưu container lên sớm hơn.
+
+    Rủi ro gốc của Bước 4: rơi luồng Đỏ → chậm 1–2 ngày → phát sinh phí lưu
+    container. Trước đây hai luật này rời nhau nên hệ thống báo hai chuyện độc
+    lập thay vì một chuỗi nhân quả.
+    """
+
+    TODAY = date(2026, 8, 10)
+
+    def _container(self, **overrides):
+        defaults = dict(
+            container_no="CSQU3054383",
+            ata=None,
+            eta=date(2026, 8, 8),
+            free_time_days=8,
+            do_no=None,
+            pod="Hai Phong",
+            pol="Busan",
+            etd=None,
+            vessel=None,
+            voyage=None,
+            bl_no=None,
+            booking_no=None,
+        )
+        defaults.update(overrides)
+        return SimpleNamespace(**defaults)
+
+    def _codes(self, **kwargs):
+        exceptions = detect_exceptions(
+            self._container(),
+            document_types=set(),
+            eta_history=[],
+            last_source_at=None,
+            today=self.TODAY,
+            **kwargs,
+        )
+        return {e.code: e for e in exceptions}
+
+    def test_green_lane_does_not_warn_yet(self) -> None:
+        # Hạn free time 2026-08-16, còn 6 ngày — ngoài ngưỡng cảnh báo 3 ngày.
+        self.assertNotIn("free_time_expiring", self._codes(customs_channel="green"))
+
+    def test_red_lane_not_cleared_pulls_the_warning_forward(self) -> None:
+        codes = self._codes(customs_channel="red", customs_cleared=False)
+
+        self.assertNotIn("free_time_expiring", codes)
+
+    def test_red_lane_warns_earlier_than_green_at_the_same_deadline(self) -> None:
+        # Còn đúng 5 ngày: luồng xanh chưa cảnh báo, luồng Đỏ thì có, vì kiểm
+        # hoá ăn mất 2 ngày trong số đó.
+        container = self._container(eta=date(2026, 8, 7), free_time_days=8)
+        common = dict(
+            document_types=set(), eta_history=[], last_source_at=None, today=self.TODAY
+        )
+
+        green = {e.code for e in detect_exceptions(container, customs_channel="green", **common)}
+        red = {
+            e.code
+            for e in detect_exceptions(
+                container, customs_channel="red", customs_cleared=False, **common
+            )
+        }
+
+        self.assertNotIn("free_time_expiring", green)
+        self.assertIn("free_time_expiring", red)
+
+    def test_a_cleared_red_lane_no_longer_pulls_it_forward(self) -> None:
+        # Đã thông quan thì không còn chờ kiểm hoá nữa, không việc gì phải hối.
+        container = self._container(eta=date(2026, 8, 7), free_time_days=8)
+        common = dict(
+            document_types=set(), eta_history=[], last_source_at=None, today=self.TODAY
+        )
+
+        codes = {
+            e.code
+            for e in detect_exceptions(
+                container, customs_channel="red", customs_cleared=True, **common
+            )
+        }
+
+        self.assertNotIn("free_time_expiring", codes)
+
+    def test_the_warning_explains_why_it_fired_early(self) -> None:
+        container = self._container(eta=date(2026, 8, 7), free_time_days=8)
+        exceptions = detect_exceptions(
+            container,
+            document_types=set(),
+            eta_history=[],
+            last_source_at=None,
+            today=self.TODAY,
+            customs_channel="red",
+            customs_cleared=False,
+        )
+        warning = next(e for e in exceptions if e.code == "free_time_expiring")
+
+        self.assertIn("Luồng Đỏ", warning.detail)
+        self.assertTrue(any("Luồng Đỏ" in line for line in warning.evidence))
+
+    def test_reported_days_remaining_stays_the_real_number(self) -> None:
+        # Ngưỡng cảnh báo dịch đi, nhưng con số đếm ngược hiện ra phải là hạn
+        # thật — hiện sai ngày làm người dùng mất tin vào mọi cảnh báo khác.
+        container = self._container(eta=date(2026, 8, 7), free_time_days=8)
+        warning = next(
+            e
+            for e in detect_exceptions(
+                container,
+                document_types=set(),
+                eta_history=[],
+                last_source_at=None,
+                today=self.TODAY,
+                customs_channel="red",
+                customs_cleared=False,
+            )
+            if e.code == "free_time_expiring"
+        )
+
+        self.assertEqual(warning.due_date, date(2026, 8, 15))
+        self.assertEqual(warning.days_remaining, 5)
+
+
+class ClearedCustomsAlertTest(unittest.TestCase):
+    def _codes(self, *, channel, cleared):
+        container = SimpleNamespace(
+            container_no="CSQU3054383", ata=None, eta=date(2026, 9, 20),
+            free_time_days=10, do_no=None, pod="Hai Phong", pol="Busan",
+            etd=None, vessel=None, voyage=None, bl_no=None, booking_no=None,
+        )
+        return {
+            e.code
+            for e in detect_exceptions(
+                container,
+                document_types=set(),
+                eta_history=[],
+                last_source_at=None,
+                today=date(2026, 8, 10),
+                customs_channel=channel,
+                customs_cleared=cleared,
+            )
+        }
+
+    def test_red_lane_alerts_while_not_cleared(self) -> None:
+        self.assertIn("customs_red", self._codes(channel="red", cleared=False))
+
+    def test_red_lane_alert_stops_once_cleared(self) -> None:
+        # Thông quan xong thì luồng chỉ còn là lịch sử.
+        self.assertNotIn("customs_red", self._codes(channel="red", cleared=True))
+
+    def test_yellow_lane_alert_stops_once_cleared(self) -> None:
+        self.assertNotIn("customs_yellow", self._codes(channel="yellow", cleared=True))

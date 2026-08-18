@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from db.models import ChargeGroup, Email
-from gmail_service.field_extract import extract_fields
+from gmail_service.field_extract import extract_fields, run_extraction_in_thread
 
 # Mã phí chuẩn hoá theo từ khoá xuất hiện trong mô tả. Xếp theo thứ tự kiểm
 # tra: cụm dài và đặc thù đứng trước để không bị cụm ngắn nuốt mất.
@@ -118,7 +118,9 @@ async def build_charge_draft_from_email(
     text = "\n".join(part for part in parts if part.strip())
 
     try:
-        fields = extract_fields(email.subject or "", email.from_email or "", text)
+        fields = await run_extraction_in_thread(
+            extract_fields, email.subject or "", email.from_email or "", text
+        )
     except Exception as exc:  # noqa: BLE001
         return {
             "source_email_id": str(email.id),

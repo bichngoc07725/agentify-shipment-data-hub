@@ -47,6 +47,34 @@ class ContainerProfile:
     # kịch bản (thread) mới cần, nên để mặc định rỗng cho 6 hồ sơ viết tay ban đầu.
     carrier_email: str = ""
     customer_email: str = ""
+    # Ba mốc chốt của Bước 2. Chỉ hồ sơ chạy vòng khép kín cần, vì chúng là thứ
+    # hãng tàu báo trong thư xác nhận đặt chỗ chứ không phải thuộc tính lô hàng.
+    si_cutoff: str = ""
+    vgm_cutoff: str = ""
+    gate_in_cutoff: str = ""
+    empty_depot: str = ""
+    # Chi tiết chứng từ thương mại. Có đủ ở đây thì phiếu nhập liệu tờ khai tự
+    # điền được thay vì bắt nhân viên gõ lại đúng thứ email đã ghi rõ.
+    shipper_tax_code: str = ""
+    shipper_address: str = ""
+    consignee_address: str = ""
+    origin_country: str = ""
+    destination_country: str = ""
+    invoice_no: str = ""
+    invoice_date: str = ""
+    invoice_value: str = ""
+    hs_code: str = ""
+    packages: str = ""
+    # Cố ý lệch với `packages` để dựng lại đúng rủi ro gốc của Bước 3:
+    # Invoice và Packing List khai khác nhau về cùng một số liệu.
+    packages_on_packing_list: str = ""
+    gross_weight: str = ""
+    volume_cbm: str = ""
+    payment_term: str = ""
+    declaration_no: str = ""
+    customs_office: str = ""
+    registration_date: str = ""
+    tax_amount: str = ""
     agent_email: str = ""
     trucker_email: str = ""
     customs_email: str = ""
@@ -437,6 +465,29 @@ THREAD_PROFILES: dict[str, ContainerProfile] = {
         status_bucket="Chờ chứng từ",
         carrier_email="booking@wanhai-demo.com",
         customer_email="xnk@hatdieuphuongnam.vn",
+        customs_email="thongbao@haiquan-demo.gov.vn",
+        si_cutoff="2026-07-08 17:00 (GMT+7)",
+        vgm_cutoff="2026-07-08 12:00 (GMT+7)",
+        gate_in_cutoff="2026-07-09 16:00 (GMT+7)",
+        empty_depot="Tan Cang Long Binh depot, Bien Hoa",
+        shipper_tax_code="0309876543",
+        shipper_address="12 Nguyen Van Linh, Q7, TP Ho Chi Minh, Viet Nam",
+        consignee_address="8 Marina Boulevard, Singapore 018981",
+        origin_country="Viet Nam",
+        destination_country="Singapore",
+        invoice_no="INV-PN-260705",
+        invoice_date="2026-07-05",
+        invoice_value="USD 47,600.00",
+        hs_code="0801.32.00",
+        packages="320 BAGS",
+        packages_on_packing_list="320 BAGS",
+        gross_weight="19,200 KGS",
+        volume_cbm="28.4 CBM",
+        payment_term="TT 15 days",
+        declaration_no="305771902244",
+        customs_office="Chi cuc HQ CK cang Sai Gon KV I",
+        registration_date="2026-07-06",
+        tax_amount="VND 18,940,000",
     ),
     # Vòng hỏi giá thứ hai: tuyến khác, hàng khác, và quan trọng hơn là bảng
     # phí có dòng SỐ LƯỢNG 2 — để kiểm đúng nhánh chia thành tiền cho số lượng
@@ -461,6 +512,29 @@ THREAD_PROFILES: dict[str, ContainerProfile] = {
         status_bucket="Chờ chứng từ",
         carrier_email="booking.vn@one-demo.com",
         customer_email="xuatkhau@detmaythanhlong.vn",
+        customs_email="thongbao@haiquan-demo.gov.vn",
+        si_cutoff="2026-08-18 16:00 (GMT+7)",
+        vgm_cutoff="2026-08-18 10:00 (GMT+7)",
+        gate_in_cutoff="2026-08-19 15:00 (GMT+7)",
+        empty_depot="Nam Hai Dinh Vu depot, Hai Phong",
+        shipper_tax_code="0201234567",
+        shipper_address="Lo B2-4 KCN Nomura, An Duong, Hai Phong, Viet Nam",
+        consignee_address="3-14-7 Kaigan-dori, Naka-ku, Yokohama 231-0002, Japan",
+        origin_country="Viet Nam",
+        destination_country="Japan",
+        invoice_no="INV-TL-260815",
+        invoice_date="2026-08-15",
+        invoice_value="USD 128,400.00",
+        hs_code="6205.20.00",
+        packages="940 CTNS",
+        packages_on_packing_list="904 CTNS",
+        gross_weight="18,500 KGS",
+        volume_cbm="62.5 CBM",
+        payment_term="TT 30 days from B/L date",
+        declaration_no="305892374611",
+        customs_office="Chi cuc HQ CK cang Hai Phong KV I",
+        registration_date="2026-08-16",
+        tax_amount="VND 42,150,000",
     ),
 }
 
@@ -688,6 +762,28 @@ def _fill(text: str, profile: ContainerProfile) -> str:
         carrier=profile.carrier,
         shipper=profile.shipper,
         consignee=profile.consignee,
+        si_cutoff=profile.si_cutoff,
+        shipper_tax_code=profile.shipper_tax_code,
+        shipper_address=profile.shipper_address,
+        consignee_address=profile.consignee_address,
+        origin_country=profile.origin_country,
+        destination_country=profile.destination_country,
+        invoice_no=profile.invoice_no,
+        invoice_date=profile.invoice_date,
+        invoice_value=profile.invoice_value,
+        hs_code=profile.hs_code,
+        packages=profile.packages,
+        packages_on_packing_list=profile.packages_on_packing_list,
+        gross_weight=profile.gross_weight,
+        volume_cbm=profile.volume_cbm,
+        payment_term=profile.payment_term,
+        declaration_no=profile.declaration_no,
+        customs_office=profile.customs_office,
+        registration_date=profile.registration_date,
+        tax_amount=profile.tax_amount,
+        vgm_cutoff=profile.vgm_cutoff,
+        gate_in_cutoff=profile.gate_in_cutoff,
+        empty_depot=profile.empty_depot,
     )
 
 
@@ -1339,7 +1435,150 @@ SCENARIO_RFQ_ROUND_TRIP: tuple[ThreadStep, ...] = (
         day_offset=1,
         sent_time="16:50",
     ),
+    ThreadStep(
+        suffix="05-agentify-dat-cho",
+        leg="AGENTIFY>HANGTAU",
+        direction=OUTBOUND,
+        partner="carrier",
+        subject="Booking request {pol} - {pod} / {quantity} / ref RFQ-{po_no}",
+        body=(
+            "Dear {carrier} Booking Team,\n\n"
+            "Following your rate confirmation, we would like to place a firm booking "
+            "for the shipment below.\n\n"
+            "- Port of loading  : {pol}\n"
+            "- Port of discharge: {pod}\n"
+            "- Equipment        : {quantity}\n"
+            "- Commodity        : {commodity}\n"
+            "- Shipper          : {shipper}\n"
+            "- Consignee        : {consignee}\n"
+            "- Requested ETD    : {etd}\n"
+            "- Incoterm         : FOB\n\n"
+            "Please confirm and advise:\n"
+            "  1. Booking number\n"
+            "  2. Vessel / voyage and ETD-ETA\n"
+            "  3. SI cut-off, VGM cut-off and gate-in cut-off\n"
+            "  4. Empty pick-up depot\n\n"
+            "Our reference: RFQ-{po_no}\n\n"
+            "Thank you and best regards,\nAgentify Forwarding — Operations"
+        ),
+        day_offset=2,
+        sent_time="09:20",
+    ),
+    ThreadStep(
+        suffix="06-hang-tau-xac-nhan",
+        leg="HANGTAU>AGENTIFY",
+        direction=INBOUND,
+        partner="carrier",
+        subject="BOOKING CONFIRMATION {booking_no} / {container_no}",
+        body=(
+            "Dear Agentify,\n\n"
+            "We are pleased to confirm your booking as follows.\n\n"
+            "Booking No       : {booking_no}\n"
+            "Container No     : {container_no}\n"
+            "Vessel / Voyage  : {vessel_voyage}\n"
+            "Port of loading  : {pol}\n"
+            "Port of discharge: {pod}\n"
+            "ETD              : {etd}\n"
+            "ETA              : {eta}\n"
+            "Equipment        : {quantity}\n\n"
+            "CUT-OFF TIMES — please observe strictly:\n"
+            "  SI cut-off       : {si_cutoff}\n"
+            "  VGM cut-off      : {vgm_cutoff}\n"
+            "  Gate-in cut-off  : {gate_in_cutoff}\n\n"
+            "Empty pick-up depot: {empty_depot}\n\n"
+            "Late submission of SI or VGM will result in the container being rolled "
+            "to the next vessel.\n\n"
+            "Best regards,\n{carrier} - Booking Desk"
+        ),
+        day_offset=2,
+        sent_time="16:05",
+    ),
+    ThreadStep(
+        suffix="07-khach-gui-invoice",
+        leg="KHACH>AGENTIFY",
+        direction=INBOUND,
+        partner="customer",
+        subject="Commercial Invoice {invoice_no} / lô {container_no}",
+        body=(
+            "Chào Agentify,\n\n"
+            "Bên mình gửi hoá đơn thương mại cho lô {container_no} để làm thủ tục.\n\n"
+            "COMMERCIAL INVOICE\n"
+            "Invoice No   : {invoice_no}\n"
+            "Invoice Date : {invoice_date}\n"
+            "Container No : {container_no}\n"
+            "Booking No   : {booking_no}\n"
+            "Shipper      : {shipper}\n"
+            "Shipper Tax Code: {shipper_tax_code}\n"
+            "Shipper Address : {shipper_address}\n"
+            "Consignee    : {consignee}\n"
+            "Consignee Address: {consignee_address}\n"
+            "Country of destination: {destination_country}\n"
+            "Port of loading  : {pol}\n"
+            "Port of discharge: {pod}\n"
+            "Description  : {commodity}\n"
+            "HS Code      : {hs_code}\n"
+            "Country of origin: {origin_country}\n"
+            "Packages     : {packages}\n"
+            "Gross weight : {gross_weight}\n"
+            "Measurement  : {volume_cbm}\n"
+            "Incoterm     : FOB {pol}\n"
+            "Payment term : {payment_term}\n"
+            "Total invoice value: {invoice_value}\n\n"
+            "Trân trọng,\nPhòng Xuất nhập khẩu - {shipper}"
+        ),
+        day_offset=3,
+        sent_time="10:15",
+    ),
+    ThreadStep(
+        suffix="08-khach-gui-packing-list",
+        leg="KHACH>AGENTIFY",
+        direction=INBOUND,
+        partner="customer",
+        subject="Packing List lô {container_no} / {invoice_no}",
+        body=(
+            "Chào Agentify,\n\n"
+            "Gửi bạn packing list của lô {container_no}.\n\n"
+            "PACKING LIST\n"
+            "Invoice No   : {invoice_no}\n"
+            "Container No : {container_no}\n"
+            "Shipper      : {shipper}\n"
+            "Consignee    : {consignee}\n"
+            "Description  : {commodity}\n"
+            "Packages     : {packages_on_packing_list}\n"
+            "Gross weight : {gross_weight}\n"
+            "Measurement  : {volume_cbm}\n"
+            "Marks        : {po_no}\n\n"
+            "Trân trọng,\nBộ phận Kho - {shipper}"
+        ),
+        day_offset=3,
+        sent_time="10:40",
+    ),
+    ThreadStep(
+        suffix="09-hai-quan-phan-luong",
+        leg="HAIQUAN>AGENTIFY",
+        direction=INBOUND,
+        partner="customs",
+        subject="Thông báo phân luồng tờ khai {declaration_no} / {container_no}",
+        body=(
+            "Kính gửi doanh nghiệp,\n\n"
+            "Tờ khai hải quan của lô hàng đã được tiếp nhận và phân luồng.\n\n"
+            "Số tờ khai      : {declaration_no}\n"
+            "Container No    : {container_no}\n"
+            "Loại hình       : Xuất kinh doanh\n"
+            "Chi cục hải quan: {customs_office}\n"
+            "Phân luồng      : Luồng Đỏ\n"
+            "Ngày đăng ký    : {registration_date}\n"
+            "Mã HS           : {hs_code}\n"
+            "Tổng tiền thuế  : {tax_amount}\n\n"
+            "Luồng Đỏ phải kiểm tra thực tế hàng hoá. Đề nghị doanh nghiệp xuất "
+            "trình hàng tại địa điểm kiểm tra.\n\n"
+            "Trân trọng."
+        ),
+        day_offset=4,
+        sent_time="08:45",
+    ),
 )
+
 
 # Vòng hỏi giá thứ hai. Khác vòng đầu ở hai chỗ có chủ đích: bảng phí của hãng
 # tàu có dòng số lượng 2 (kiểm nhánh chia đơn giá), và có phụ phí LSS + phí
@@ -1441,7 +1680,150 @@ SCENARIO_RFQ_ROUND_TRIP_2: tuple[ThreadStep, ...] = (
         day_offset=1,
         sent_time="17:20",
     ),
+    ThreadStep(
+        suffix="05-agentify-dat-cho",
+        leg="AGENTIFY>HANGTAU",
+        direction=OUTBOUND,
+        partner="carrier",
+        subject="Booking request {pol} - {pod} / {quantity} / ref RFQ-{po_no}",
+        body=(
+            "Dear {carrier} Booking Team,\n\n"
+            "Following your rate confirmation, we would like to place a firm booking "
+            "for the shipment below.\n\n"
+            "- Port of loading  : {pol}\n"
+            "- Port of discharge: {pod}\n"
+            "- Equipment        : {quantity}\n"
+            "- Commodity        : {commodity}\n"
+            "- Shipper          : {shipper}\n"
+            "- Consignee        : {consignee}\n"
+            "- Requested ETD    : {etd}\n"
+            "- Incoterm         : FOB\n\n"
+            "Please confirm and advise:\n"
+            "  1. Booking number\n"
+            "  2. Vessel / voyage and ETD-ETA\n"
+            "  3. SI cut-off, VGM cut-off and gate-in cut-off\n"
+            "  4. Empty pick-up depot\n\n"
+            "Our reference: RFQ-{po_no}\n\n"
+            "Thank you and best regards,\nAgentify Forwarding — Operations"
+        ),
+        day_offset=2,
+        sent_time="09:20",
+    ),
+    ThreadStep(
+        suffix="06-hang-tau-xac-nhan",
+        leg="HANGTAU>AGENTIFY",
+        direction=INBOUND,
+        partner="carrier",
+        subject="BOOKING CONFIRMATION {booking_no} / {container_no}",
+        body=(
+            "Dear Agentify,\n\n"
+            "We are pleased to confirm your booking as follows.\n\n"
+            "Booking No       : {booking_no}\n"
+            "Container No     : {container_no}\n"
+            "Vessel / Voyage  : {vessel_voyage}\n"
+            "Port of loading  : {pol}\n"
+            "Port of discharge: {pod}\n"
+            "ETD              : {etd}\n"
+            "ETA              : {eta}\n"
+            "Equipment        : {quantity}\n\n"
+            "CUT-OFF TIMES — please observe strictly:\n"
+            "  SI cut-off       : {si_cutoff}\n"
+            "  VGM cut-off      : {vgm_cutoff}\n"
+            "  Gate-in cut-off  : {gate_in_cutoff}\n\n"
+            "Empty pick-up depot: {empty_depot}\n\n"
+            "Late submission of SI or VGM will result in the container being rolled "
+            "to the next vessel.\n\n"
+            "Best regards,\n{carrier} - Booking Desk"
+        ),
+        day_offset=2,
+        sent_time="16:05",
+    ),
+    ThreadStep(
+        suffix="07-khach-gui-invoice",
+        leg="KHACH>AGENTIFY",
+        direction=INBOUND,
+        partner="customer",
+        subject="Commercial Invoice {invoice_no} / lô {container_no}",
+        body=(
+            "Chào Agentify,\n\n"
+            "Bên mình gửi hoá đơn thương mại cho lô {container_no} để làm thủ tục.\n\n"
+            "COMMERCIAL INVOICE\n"
+            "Invoice No   : {invoice_no}\n"
+            "Invoice Date : {invoice_date}\n"
+            "Container No : {container_no}\n"
+            "Booking No   : {booking_no}\n"
+            "Shipper      : {shipper}\n"
+            "Shipper Tax Code: {shipper_tax_code}\n"
+            "Shipper Address : {shipper_address}\n"
+            "Consignee    : {consignee}\n"
+            "Consignee Address: {consignee_address}\n"
+            "Country of destination: {destination_country}\n"
+            "Port of loading  : {pol}\n"
+            "Port of discharge: {pod}\n"
+            "Description  : {commodity}\n"
+            "HS Code      : {hs_code}\n"
+            "Country of origin: {origin_country}\n"
+            "Packages     : {packages}\n"
+            "Gross weight : {gross_weight}\n"
+            "Measurement  : {volume_cbm}\n"
+            "Incoterm     : FOB {pol}\n"
+            "Payment term : {payment_term}\n"
+            "Total invoice value: {invoice_value}\n\n"
+            "Trân trọng,\nPhòng Xuất nhập khẩu - {shipper}"
+        ),
+        day_offset=3,
+        sent_time="10:15",
+    ),
+    ThreadStep(
+        suffix="08-khach-gui-packing-list",
+        leg="KHACH>AGENTIFY",
+        direction=INBOUND,
+        partner="customer",
+        subject="Packing List lô {container_no} / {invoice_no}",
+        body=(
+            "Chào Agentify,\n\n"
+            "Gửi bạn packing list của lô {container_no}.\n\n"
+            "PACKING LIST\n"
+            "Invoice No   : {invoice_no}\n"
+            "Container No : {container_no}\n"
+            "Shipper      : {shipper}\n"
+            "Consignee    : {consignee}\n"
+            "Description  : {commodity}\n"
+            "Packages     : {packages_on_packing_list}\n"
+            "Gross weight : {gross_weight}\n"
+            "Measurement  : {volume_cbm}\n"
+            "Marks        : {po_no}\n\n"
+            "Trân trọng,\nBộ phận Kho - {shipper}"
+        ),
+        day_offset=3,
+        sent_time="10:40",
+    ),
+    ThreadStep(
+        suffix="09-hai-quan-phan-luong",
+        leg="HAIQUAN>AGENTIFY",
+        direction=INBOUND,
+        partner="customs",
+        subject="Thông báo phân luồng tờ khai {declaration_no} / {container_no}",
+        body=(
+            "Kính gửi doanh nghiệp,\n\n"
+            "Tờ khai hải quan của lô hàng đã được tiếp nhận và phân luồng.\n\n"
+            "Số tờ khai      : {declaration_no}\n"
+            "Container No    : {container_no}\n"
+            "Loại hình       : Xuất kinh doanh\n"
+            "Chi cục hải quan: {customs_office}\n"
+            "Phân luồng      : Luồng Đỏ\n"
+            "Ngày đăng ký    : {registration_date}\n"
+            "Mã HS           : {hs_code}\n"
+            "Tổng tiền thuế  : {tax_amount}\n\n"
+            "Luồng Đỏ phải kiểm tra thực tế hàng hoá. Đề nghị doanh nghiệp xuất "
+            "trình hàng tại địa điểm kiểm tra.\n\n"
+            "Trân trọng."
+        ),
+        day_offset=4,
+        sent_time="08:45",
+    ),
 )
+
 
 SCENARIOS: dict[str, tuple[ThreadStep, ...]] = {
     "export_fcl": SCENARIO_EXPORT_FCL,

@@ -140,6 +140,23 @@ class CustomerQuoteMailTest(unittest.TestCase):
         self.assertIn("(x2)", body)
         self.assertNotIn("(x1)", body)
 
+    def test_quantity_drops_the_trailing_zeros_the_database_adds(self) -> None:
+        # Cột lưu `Numeric` nên đọc ra là `Decimal("2.00")`, không phải
+        # `Decimal("2")` như các test khác dựng bằng tay. Thư gửi khách viết
+        # "2.00 container" đọc như máy in ra.
+        quote = make_quote(charges=[charge(ChargeGroup.LOCAL, "THC", "260", quantity="2.00")])
+
+        body = build_customer_quote_mail(quote)["body"]
+
+        self.assertIn("(x2)", body)
+        self.assertNotIn("2.00)", body)
+
+    def test_a_genuinely_fractional_quantity_keeps_its_decimals(self) -> None:
+        # Phí tính theo tấn hay CBM có số lẻ thật; cắt đi là sai tiền.
+        quote = make_quote(charges=[charge(ChargeGroup.LOCAL, "CFS", "18", quantity="2.50")])
+
+        self.assertIn("(x2.5)", build_customer_quote_mail(quote)["body"])
+
     def test_subject_names_the_quote_and_the_route(self) -> None:
         subject = build_customer_quote_mail(make_quote())["subject"]
 

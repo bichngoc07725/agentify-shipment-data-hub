@@ -671,6 +671,7 @@ class QuoteDraftFields(BaseModel):
     container_type: str | None = None
     container_qty: int | None = None
     gross_weight_kg: Decimal | None = None
+    cargo_ready_date: date | None = None
     incoterm: str | None = None
     payment_term: str | None = None
 
@@ -684,6 +685,28 @@ class QuoteDraftResponse(BaseModel):
     # để người dùng tự dò xem máy đã đụng vào đâu.
     fields_found: list[str]
     extraction_error: str | None = None
+
+
+class WorksheetFieldResponse(BaseModel):
+    label: str
+    value: str | None
+    source_hint: str
+    is_missing: bool
+    # Chuỗi đã dựng sẵn kèm câu "không có trong Agentify" và nguồn cần tra, để
+    # web và file .docx hiển thị y hệt nhau thay vì mỗi nơi tự ghép một kiểu.
+    display: str
+
+
+class WorksheetSectionResponse(BaseModel):
+    title: str
+    fields: list[WorksheetFieldResponse]
+
+
+class CustomsWorksheetResponse(BaseModel):
+    container_no: str
+    sections: list[WorksheetSectionResponse]
+    field_count: int
+    missing_count: int
 
 
 class ComposedMailResponse(BaseModel):
@@ -746,6 +769,10 @@ class BookingCreateRequest(BaseModel):
 
 
 class BookingUpdateRequest(BaseModel):
+    # Gắn container vào sau, khi hãng tàu xác nhận và cấp số. Thiếu trường này
+    # thì chỗ đặt mở ở trạng thái `requested` không bao giờ nối được với
+    # container — đúng chỗ mắt xích Bước 2 sang Bước 3 bị đứt.
+    container_no: str | None = None
     quote_id: UUID | None = None
     booking_no: str | None = None
     status: BookingStatusLiteral = "requested"
